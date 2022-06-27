@@ -3,9 +3,15 @@
 #include "Arduino.h"
 #include "WiFiType.h"
 
+#if defined(ARDUINO_M5Stack_Core_ESP32)
+#include "M5Stack.h"
+#include "M5Display.h"
+#endif
+
 class Display {
 public: 
     virtual void begin() = 0;
+    virtual void clear() = 0;
     virtual void debug(String message) = 0;
     virtual void time(int hour, int min);
     virtual void wifi_status(wl_status_t status);
@@ -17,6 +23,8 @@ public:
     virtual void begin() {
         Serial.begin(115200);
     }
+
+    virtual void clear() {}
 
     virtual void debug(String message) {
         Serial.print("[DEBUG] ");
@@ -57,3 +65,16 @@ public:
         }
     }
 };
+
+#if defined(ARDUINO_M5Stack_Core_ESP32)
+class XM5Display : public Display {
+public:
+    virtual void begin();
+    virtual void clear();
+    virtual void debug(String message);
+    virtual void time(int hour, int min);
+    virtual void wifi_status(wl_status_t status);
+private:
+    M5Display lcd;
+};
+#endif

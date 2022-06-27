@@ -12,12 +12,10 @@ void setup() {
 }
 
 void loop() {
-    // delay(2000);
-    // debug("loop");
-
     // draw if there was a redraw request in last loop iteration
     if (drawing) {
         for(int i = 0; i < sizeof(displays) / sizeof(Display*); i++) {
+            displays[i]->clear();
             wifi.draw(displays[i]);
             ntp.draw(displays[i]);
         }

@@ -14,9 +14,18 @@ const char* ntp_server = NTP_SERVER;
 
 SerialDisplay serial_display;
 
+#if defined(ARDUINO_M5Stack_Core_ESP32)
+XM5Display m5_display;
+#endif
+
 Display* displays[] = {
     &serial_display
+#if defined(ARDUINO_M5Stack_Core_ESP32)
+    , &m5_display
+#endif
 };
+
+const int nr_displays = sizeof(displays) / sizeof(Display*);
 
 XWiFi wifi;
 
