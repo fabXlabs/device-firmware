@@ -21,7 +21,7 @@ public:
 
     void draw(Display* display) {
         display->debug("XWiFi draw");
-        display->wifi_status(status);
+        display->wifi_status(_status);
     }
 
     bool redraw_request() {
@@ -34,15 +34,19 @@ public:
 
     void loop() {
         wl_status_t status_new = WiFi.status();
-        if (status_new != status) {
-            status = status_new;
+        if (status_new != _status) {
+            _status = status_new;
             _redraw_request = true;
         }
     }
 
+    wl_status_t status() {
+        return _status;
+    }
+
 private:
     bool _redraw_request = false;
-    wl_status_t status;
+    wl_status_t _status;
 
     void debug(String message) {
         String tag = "[WiFi] ";
