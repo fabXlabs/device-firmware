@@ -13,6 +13,7 @@ public:
     virtual void begin() = 0;
     virtual void clear() = 0;
     virtual void debug(String message) = 0;
+    virtual void name(String name);
     virtual void time(int hour, int min);
     virtual void wifi_status(wl_status_t status);
     virtual ~Display() {}
@@ -33,6 +34,11 @@ public:
 
     virtual void time(int hour, int min) {
         Serial.printf("[Time] %02i:%02i\n", hour, min);
+    }
+
+    virtual void name(String name) {
+        Serial.print("[Name] ");
+        Serial.println(name);
     }
 
     virtual void wifi_status(wl_status_t status) {
@@ -72,6 +78,7 @@ public:
     virtual void begin();
     virtual void clear();
     virtual void debug(String message);
+    virtual void name(String name);
     virtual void time(int hour, int min);
     virtual void wifi_status(wl_status_t status);
 private:

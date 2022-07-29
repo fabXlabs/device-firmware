@@ -14,12 +14,19 @@ void XM5Display::debug(String message) {
 }
 
 void XM5Display::time(int hour, int min) {
-    lcd.setTextDatum(TL_DATUM);
+    lcd.setTextDatum(BR_DATUM);
     lcd.setTextSize(3);
     lcd.setTextColor(TFT_WHITE);
     char buf[8];
     sprintf(buf, "%02i:%02i", hour, min);
-    lcd.drawString(buf, 0, 0);
+    lcd.drawString(buf, 320, 240);
+}
+
+void XM5Display::name(String name) {
+    lcd.setTextDatum(TL_DATUM);
+    lcd.setTextSize(3);
+    lcd.setTextColor(TFT_WHITE);
+    lcd.drawString(name, 0, 0);
 }
 
 void XM5Display::wifi_status(wl_status_t status) {
