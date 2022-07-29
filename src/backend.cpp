@@ -1,8 +1,22 @@
 #include "backend.h"
 
 void Backend::sendGetConfig() {
+    debug("sending get config");
     if (!webSocket.sendTXT("{\"type\":\"cloud.fabX.fabXaccess.device.ws.GetConfiguration\",\"commandId\":42}")) {
         debug("sending get config failed");
+    }
+}
+
+void Backend::sendToolUnlockResponse(long commandId) {
+    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.ToolUnlockResponse\",\"commandId\":";
+    msg += commandId;
+    msg += "}";
+
+    debug("sending tool unlock response");
+    debug(msg);
+
+    if (!webSocket.sendTXT(msg)) {
+        debug("sending tool unlock response failed");
     }
 }
 
@@ -26,6 +40,8 @@ void Backend::handleText(uint8_t * payload, size_t length) {
 
     if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.ConfigurationResponse") == 0) {
         backend.handleConfigurationResponse(doc);
+    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.UnlockTool") == 0) {
+        backend.handleUnlockToolCommand(doc);
     }
 }
 
@@ -36,6 +52,12 @@ void Backend::handleConfigurationResponse(DynamicJsonDocument & doc) {
 
     got_config = true;
     _redraw_request = true;
+}
+
+void Backend::handleUnlockToolCommand(DynamicJsonDocument & doc) {
+    debug("handling unlock tool command");
+    long commandId = doc["commandId"];
+    sendToolUnlockResponse(commandId);
 }
 
 void Backend::websocketEvent(WStype_t type, uint8_t * payload, size_t length) {

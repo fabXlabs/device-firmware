@@ -43,14 +43,18 @@ public:
 
 private:
     bool _redraw_request = false;
-    
+
     WebSocketsClient webSocket;
+
+    void sendToolUnlockResponse(long commandId);
 
     static void websocketEvent(WStype_t type, uint8_t * payload, size_t length);
 
     void handleText(uint8_t * payload, size_t length);
 
     void handleConfigurationResponse(DynamicJsonDocument & doc);
+
+    void handleUnlockToolCommand(DynamicJsonDocument & doc);
 
     void debug(String message) {
         String tag = "[BE] ";
