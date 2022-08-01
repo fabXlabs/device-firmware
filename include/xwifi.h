@@ -20,7 +20,6 @@ public:
     }
 
     void draw(Display* display) {
-        display->debug("XWiFi draw");
         display->wifi_status(_status);
     }
 

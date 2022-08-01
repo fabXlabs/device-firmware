@@ -15,8 +15,6 @@ public:
     }
 
     void draw(Display* display) {
-        display->debug("Backend draw");
-
         if (got_config) {
             display->name(name);
         }

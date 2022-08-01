@@ -15,17 +15,16 @@ public:
     }
 
     void draw(Display* display) {
-        display->debug("NTP draw");
         if (ntp_synced) {
             struct tm local;
-            ntp_synced = getLocalTime(&local, 5000);
+            ntp_synced = getLocalTime(&local, 1000);
 
-            const char * f = "time: %d.%m.%y Time: %H:%M:%S";
-            char buf[64];
-            size_t written = strftime(buf, 64, f, &local);
-            debug(buf);
+            // const char * f = "time: %d.%m.%y Time: %H:%M:%S";
+            // char buf[64];
+            // size_t written = strftime(buf, 64, f, &local);
+            // debug(buf);
 
-            display->time(hour, min);
+            display->time(hour, min, sec);
         }
     }
 
@@ -65,6 +64,10 @@ public:
                 min = local.tm_min;
                 _redraw_request = true;
             }
+            if (local.tm_sec != sec) {
+                sec = local.tm_sec;
+                _redraw_request = true;
+            }
         }
     }
 
@@ -76,6 +79,7 @@ private:
     unsigned long last_time_check = 0;
     int hour = -1;
     int min = -1;
+    int sec = -1;
 
     void debug(String message) {
         String tag = "[NTP] ";
