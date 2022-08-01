@@ -7,6 +7,10 @@ void setup() {
 
     debug("hello, world");
 
+#if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
+    M5.begin();
+#endif
+
     wifi.begin(ssid, password);
 
     ntp.begin(timezone_info, ntp_server);
@@ -38,6 +42,15 @@ void loop() {
     drawing |= wifi.redraw_request();
     drawing |= ntp.redraw_request();
     drawing |= backend.redraw_request();
+
+#if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
+    M5.update();
+
+    // TODO introduce abstraction for input
+    if (M5.BtnA.wasClicked()) {
+        debug("BTN A CLICK");
+    }
+#endif
 }
 
 void debug(String msg) {
