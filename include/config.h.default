@@ -1,0 +1,12 @@
+#pragma once
+
+#define WIFI_SSID "mywifi"
+#define WIFI_PSK "mywifipassword"
+#define PICC_PSK {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10}
+#define BACKEND_HOST "fabx.example.com"
+#define BACKEND_PORT 443
+#define BACKEND_URL "/api/v1/device/ws"
+
+#define SECRET_LENGTH 16 // length of device secret for authentication to backend
+#define NTP_SERVER "de.pool.ntp.org" // ntp server for time sync
+#define TZ_INFO "WEST-1DWEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00" // Western European Time
