@@ -1,6 +1,6 @@
 #include "display.h"
 
-#if defined(ARDUINO_M5Stack_Core_ESP32)
+#if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
 void XM5Display::begin() {
     lcd.begin();
 }

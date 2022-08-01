@@ -1,15 +1,24 @@
 #include "main.h"
 
 void setup() {
+    Serial.begin(115200);
+    Serial.println("hello world");
+
     for (int i = 0; i < sizeof(displays) / sizeof(Display *); i++) {
         displays[i]->begin();
     }
 
+    Serial.println("hello world 2");
+
     debug("hello, world");
 
     wifi.begin(ssid, password);
+
+    Serial.println("hello world 3");
     ntp.begin(timezone_info, ntp_server);
+    Serial.println("hello world 4");
     backend.begin(backend_host, backend_port, backend_url);
+    Serial.println("hello world 5");
 }
 
 void loop() {

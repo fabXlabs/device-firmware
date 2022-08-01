@@ -8,6 +8,10 @@
 #include "M5Display.h"
 #endif
 
+#if defined(ARDUINO_M5STACK_Core2)
+#include "M5Unified.h"
+#endif
+
 class Display {
 public: 
     virtual void begin() = 0;
@@ -83,5 +87,19 @@ public:
     virtual void wifi_status(wl_status_t status);
 private:
     M5Display lcd;
+};
+#endif
+
+#if defined(ARDUINO_M5STACK_Core2)
+class XM5Display : public Display {
+public:
+    virtual void begin();
+    virtual void clear();
+    virtual void debug(String message);
+    virtual void name(String name);
+    virtual void time(int hour, int min);
+    virtual void wifi_status(wl_status_t status);
+private:
+    M5GFX & lcd = M5.Display;
 };
 #endif
