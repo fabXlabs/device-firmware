@@ -48,6 +48,8 @@ private:
 
     void sendToolUnlockResponse(long commandId);
 
+    void sendDeviceRestartResponse(long commandId);
+
     static void websocketEvent(WStype_t type, uint8_t * payload, size_t length);
 
     void handleText(uint8_t * payload, size_t length);
@@ -55,6 +57,8 @@ private:
     void handleConfigurationResponse(DynamicJsonDocument & doc);
 
     void handleUnlockToolCommand(DynamicJsonDocument & doc);
+
+    void handleRestartDeviceCommand(DynamicJsonDocument & doc);
 
     void debug(String message) {
         String tag = "[BE] ";
