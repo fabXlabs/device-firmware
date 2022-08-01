@@ -81,7 +81,7 @@ void Backend::handleRestartDeviceCommand(DynamicJsonDocument & doc) {
     // TODO if device is in use, send ErrorResponse and abort
     sendDeviceRestartResponse(commandId);
 
-    delay(3000);
+    delay(100);
 
     ESP.restart();
 }
