@@ -94,6 +94,7 @@ private:
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
 inline void XM5Display::begin() {
     lcd.begin();
+    canvas.setColorDepth(8);
     canvas.createSprite(lcd.width(), lcd.height());
 }
 

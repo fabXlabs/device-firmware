@@ -84,7 +84,7 @@ void loop() {
 
     // check for redraw requests
     drawing |= wifi.redraw_request();
-    //drawing |= ntp.redraw_request();
+    drawing |= ntp.redraw_request();
     drawing |= backend.redraw_request();
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
