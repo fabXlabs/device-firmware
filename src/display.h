@@ -1,171 +1,158 @@
 #pragma once
 
-#include "Arduino.h"
-#include "WiFiType.h"
+#include "trace.h"
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
-#include "M5Unified.h"
+#include <M5Unified.h>
 #endif
 
-class Display {
-public: 
+class IDisplay
+{
+public:
     virtual void begin() = 0;
-    virtual void start_draw() = 0;
-    virtual void end_draw() = 0;
-    virtual void debug(String message) = 0;
-    virtual void name(String name);
-    virtual void time(int hour, int min, int sec);
-    virtual void wifi_status(wl_status_t status);
-    virtual ~Display() {}
-};
-
-class SerialDisplay : public Display {
-public:
-    virtual void begin() {
-        Serial.begin(115200);
-    }
-
-    virtual void start_draw() {}
-
-    virtual void end_draw() {}
-
-    virtual void debug(String message) {
-        Serial.print("[DEBUG] ");
-        Serial.println(message);
-    }
-
-    virtual void time(int hour, int min, int sec) {
-        // Serial.printf("[Time] %02i:%02i\n", hour, min);
-    }
-
-    virtual void name(String name) {
-        Serial.print("[Name] ");
-        Serial.println(name);
-    }
-
-    virtual void wifi_status(wl_status_t status) {
-        Serial.print("[WiFi] status: ");
-        switch (status){
-        case WL_IDLE_STATUS:
-            Serial.println("IDLE");
-            break;
-        case WL_NO_SSID_AVAIL:
-            Serial.println("NO_SSID_AVAIL");
-            break;
-        case WL_SCAN_COMPLETED:
-            Serial.println("SCAN_COMPLETED");
-            break;
-        case WL_CONNECTED:
-            Serial.println("CONNECTED");
-            break;
-        case WL_CONNECT_FAILED:
-            Serial.println("CONNECT_FAILED");
-            break;
-        case WL_CONNECTION_LOST:
-            Serial.println("CONNECTION_LOST");
-            break;
-        case WL_DISCONNECTED:
-            Serial.println("DISCONNECTED");
-            break;
-        default:
-            Serial.println("UNKNOWN");
-            break;
-        }
-    }
+    virtual void clear() = 0;
 };
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
-class XM5Display : public Display {
+
+class X5Display : public IDisplay, public ILogger
+{
 public:
-    virtual void begin();
-    virtual void start_draw();
-    virtual void end_draw();
-    virtual void debug(String message);
-    virtual void name(String name);
-    virtual void time(int hour, int min, int sec);
-    virtual void wifi_status(wl_status_t status);
+    void begin();
+    void clear();
+    void pushCanvas();
+    void drawTime(int iHour, int iMin); // draw time
+    void drawName(const char *iName);   // draw name
+    void drawControls();                // draws arrows beside buttons
+    void drawWifiStatus(wl_status_t iStatus);
+    void log(const char *iMessage, DebugLevel iLevel, size_t length);
+
 private:
-    M5GFX & lcd = M5.Display;
-    M5Canvas canvas { &lcd };
+    M5GFX &mLcd = M5.Display;
+    M5Canvas mCanvas{&mLcd};
+    bool mInit = false;
 };
-#endif
 
-
-#if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
-inline void XM5Display::begin() {
-    lcd.begin();
-    canvas.setColorDepth(8);
-    canvas.createSprite(lcd.width(), lcd.height());
+inline void X5Display::begin()
+{
+    if (!mInit)
+    {
+        mLcd.begin();
+        mCanvas.createSprite(mLcd.width(), mLcd.height());
+        mCanvas.setRotation(1);
+        mCanvas.setColorDepth(8);
+        mInit = true;
+    }
 }
 
-inline void XM5Display::start_draw(){
-    lcd.startWrite();
-    canvas.clearDisplay();
+inline void X5Display::clear()
+{
+    mCanvas.clear();
+    pushCanvas();
 }
 
-inline void XM5Display::end_draw(){
-    canvas.pushSprite(&lcd, 0, 0);
-    lcd.endWrite();
+inline void X5Display::pushCanvas()
+{
+    mCanvas.pushSprite(&mLcd, 0, 0);
 }
 
-inline void XM5Display::debug(String message) {
-    // noop
-}
-
-inline void XM5Display::time(int hour, int min, int sec) {
-    canvas.setTextDatum(BR_DATUM);
-    canvas.setTextSize(3);
-    canvas.setTextColor(TFT_WHITE);
+inline void X5Display::drawTime(int iHour, int iMin)
+{
     char buf[16];
-    sprintf(buf, "%02i:%02i:%02i", hour, min, sec);
-    canvas.drawString(buf, 320, 240);
+    sprintf(buf, "%02i:%02i", iHour, iMin);
+    mCanvas.setTextDatum(BR_DATUM);
+    mCanvas.setTextColor(TFT_WHITE);
+    mCanvas.setTextSize(1);
+    mCanvas.drawString(buf, 240, 320);
 }
 
-inline void XM5Display::name(String name) {
-    canvas.setTextDatum(TL_DATUM);
-    canvas.setTextSize(3);
-    canvas.setTextColor(TFT_WHITE);
-    canvas.drawString(name, 0, 0);
+inline void X5Display::drawName(const char *iName)
+{
+    int len = strlen(iName);
+    int textsize = (240 / 6) / len;
+    if (textsize > 4)
+        textsize = 4;
+    mCanvas.setTextDatum(TL_DATUM);
+    mCanvas.setTextColor(TFT_WHITE);
+    mCanvas.setTextSize(textsize);
+    mCanvas.drawString(iName, 0, 0);
+    mCanvas.drawLine(0, 7 * textsize + 5, 240, 7 * textsize + 5, TFT_ORANGE);
 }
 
-inline void XM5Display::wifi_status(wl_status_t status) {
-    canvas.setTextDatum(TR_DATUM);
-    canvas.setTextSize(1);
-    canvas.setTextColor(TFT_WHITE);
-    
-    switch (status){
+inline void X5Display::drawControls()
+{
+    int x = 220;
+    mCanvas.drawTriangle(x, 45, x - 10, 60, x + 10, 60, TFT_ORANGE);
+    mCanvas.drawCircle(220, 160, 5, TFT_ORANGE);
+    mCanvas.drawTriangle(x, 320 - 45, x - 10, 320 - 60, x + 10, 320 - 60, TFT_ORANGE);
+}
+
+inline void X5Display::drawWifiStatus(wl_status_t iStatus)
+{
+    mCanvas.setTextDatum(BL_DATUM);
+    mCanvas.setTextSize(1);
+    mCanvas.setTextColor(TFT_WHITE);
+
+    const int x = 0;
+    const int y = 320;
+    switch (iStatus)
+    {
     case WL_IDLE_STATUS:
-        canvas.drawString("WiFi IDLE", 320, 12);
+        mCanvas.drawString("WiFi IDLE", x, y);
         break;
     case WL_NO_SSID_AVAIL:
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("WiFi N/A", 320, 12);
+        mCanvas.setTextColor(TFT_RED);
+        mCanvas.drawString("WiFi N/A", x, y);
         break;
     case WL_SCAN_COMPLETED:
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("WiFi COMP", 320, 12);
+        mCanvas.setTextColor(TFT_RED);
+        mCanvas.drawString("WiFi COMP", x, y);
         break;
     case WL_CONNECTED:
-        canvas.setTextColor(TFT_GREEN);
-        canvas.drawString("WiFi CONN", 320, 12);
+        mCanvas.setTextColor(TFT_GREEN);
+        mCanvas.drawString("WiFi CONN", x, y);
         break;
     case WL_CONNECT_FAILED:
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("WiFi FAIL", 320, 12);
+        mCanvas.setTextColor(TFT_RED);
+        mCanvas.drawString("WiFi FAIL", x, y);
         break;
     case WL_CONNECTION_LOST:
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("WiFi LOSS", 320, 12);
+        mCanvas.setTextColor(TFT_RED);
+        mCanvas.drawString("WiFi LOSS", x, y);
         break;
     case WL_DISCONNECTED:
-        canvas.setTextColor(TFT_RED);
-        canvas.drawString("WiFi DISC", 320, 12);
+        mCanvas.setTextColor(TFT_RED);
+        mCanvas.drawString("WiFi DISC", x, y);
         break;
     default:
-        canvas.setTextColor(TFT_WHITE);
-        canvas.drawString("WiFi UNKN", 320, 12);
-        Serial.println("UNKNOWN");
+        mCanvas.setTextColor(TFT_WHITE);
+        mCanvas.drawString("WiFi UNKN", x, y);
         break;
     }
+}
+
+inline void X5Display::log(const char *iMessage, DebugLevel iLevel, size_t length)
+{
+#ifdef DEBUG
+    String tag;
+    if (iLevel == DebugLevel::INFO_LEVEL)
+    {
+        tag = "[Info] ";
+    }
+    if (iLevel == DebugLevel::DEBUG_LEVEL)
+    {
+        tag = "[Debug] ";
+    }
+    if (iLevel == DebugLevel::ERROR_LEVEL)
+    {
+        tag = "[Error] ";
+    }
+    tag.concat(iMessage);
+    mCanvas.setTextColor(TFT_RED);
+    mCanvas.setTextDatum(TL_DATUM);
+    mCanvas.setTextSize(1);
+    mCanvas.drawString(tag, 0, mLcd.width() - 10);
+    pushCanvas();
+#endif
 }
 #endif

@@ -3,87 +3,71 @@
 #include <Arduino.h>
 #include <time.h>
 #include "WiFiType.h"
-#include "xdebug.h"
+#include "trace.h"
+#include "xwifi.h"
 
 #define CONFIG_LWIP_SNTP_UPDATE_DELAY 15000
 
-class NTP {
+class NTP
+{
 public:
-    void begin(const char* timezone_info, const char* ntp_server) {
-        tz = timezone_info;
-        server = ntp_server;
-    }
-
-    void draw(Display* display) {
-        if (ntp_synced) {
-            struct tm local;
-            ntp_synced = getLocalTime(&local, 1000);
-
-            // const char * f = "time: %d.%m.%y Time: %H:%M:%S";
-            // char buf[64];
-            // size_t written = strftime(buf, 64, f, &local);
-            // debug(buf);
-
-            display->time(hour, min, sec);
-        }
-    }
-
-    bool redraw_request() {
-        return _redraw_request;
-    }
-
-    void reset_redraw_request() {
-        _redraw_request = false;
-    }
-
-    void loop(wl_status_t wifi_status) {
-        struct tm local;
-        if (wifi_status == WL_CONNECTED && !ntp_synced) {
-            debug("attempting sync");
-		    configTzTime(tz, server);
-            ntp_synced = getLocalTime(&local, 5000);
-            String m = "sync done: ";
-            m += ntp_synced;
-            debug(m);
-            _redraw_request = true;
-        }
-
-        unsigned long current_time = millis();
-
-        if (ntp_synced && (current_time - last_time_check > 1000)) {
-            last_time_check = current_time;
-
-            time_t now;
-            time(&now);
-            localtime_r(&now, &local);
-            if (local.tm_hour != hour) {
-                hour = local.tm_hour;
-                _redraw_request = true;
-            }
-            if (local.tm_min != min) {
-                min = local.tm_min;
-                _redraw_request = true;
-            }
-            if (local.tm_sec != sec) {
-                sec = local.tm_sec;
-                _redraw_request = true;
-            }
-        }
-    }
+    NTP(const char *iTimezone, const char *iNTPServer, XWiFi &iWifi);
+    void loop();
+    bool get_redraw_request();
 
 private:
-    bool _redraw_request = false;
-    const char* tz;
-    const char* server;
-    bool ntp_synced = false;
-    unsigned long last_time_check = 0;
-    int hour = -1;
-    int min = -1;
-    int sec = -1;
-
-    void debug(String message) {
-        String tag = "[NTP] ";
-        tag.concat(message);
-        xdebug(tag);
-    }
+    bool mUpdatePending = false;
+    const char *mTimezone;
+    const char *mServer;
+    bool mSynced = false;
+    unsigned long mLastCheckTime = 0;
+    int mHour = -1;
+    int mMin = -1;
+    XWiFi *mWifi;
 };
+
+inline NTP::NTP(const char *iTimezone, const char *iNTPServer, XWiFi &iWifi)
+    : mTimezone(iTimezone), mServer(iNTPServer), mWifi(&iWifi)
+{
+}
+
+void NTP::loop()
+{
+    struct tm local;
+    wl_status_t wifi_status;
+    mWifi->getStatus(wifi_status);
+    if (wifi_status == WL_CONNECTED && !mSynced)
+    {
+        X_INFO("attempting sync");
+        configTzTime(mTimezone, mServer);
+        mSynced = getLocalTime(&local, 5000);
+        X_INFO("sync done: %d", mSynced);
+        mUpdatePending = true;
+    }
+
+    unsigned long current_time = millis();
+
+    if (mSynced && (current_time - mLastCheckTime > 1000))
+    {
+        mLastCheckTime = current_time;
+
+        time_t now;
+        time(&now);
+        localtime_r(&now, &local);
+        if (local.tm_hour != mHour)
+        {
+            mHour = local.tm_hour;
+            mUpdatePending = true;
+        }
+        if (local.tm_min != mMin)
+        {
+            mMin = local.tm_min;
+            mUpdatePending = true;
+        }
+    }
+}
+
+inline bool NTP::get_redraw_request()
+{
+    return mUpdatePending;
+}
