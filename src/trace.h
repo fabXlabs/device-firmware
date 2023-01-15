@@ -75,7 +75,7 @@ inline void Trace::trace_message(DebugLevel iLevel, const char *iMessage, ...)
     ILogger *logger;
     va_list va;
     va_start(va, iMessage);
-    static char buffer[100];
+    static char buffer[1024];
     int len = vsnprintf(buffer, sizeof(buffer), iMessage, va);
     for (int i = 0; i < sLoggers.size(); i++)
     {
