@@ -1,6 +1,5 @@
 #pragma once
 #include "result.h"
-#include "backend.h"
 
 
 enum class ToolType
@@ -19,15 +18,27 @@ enum class IdleState
 class ITool 
 {
 public:
-    ITool(char* iName, ToolType iType, bool iRequires2FA, int iTime, IdleState iIdleState);
-    virtual Result unlock() = 0;
-    virtual bool requires2FA() = 0;
+    ITool(String iName, ToolType iType, bool iRequires2FA, int iTime, IdleState iIdleState, int iPint, String iToolId);
+    Result unlock();
 
-private:
-    char*  mName = "Test";
+public:
+    String mName;
     ToolType mToolType;
     bool mRequires2FA = false;
     int mTime = 0;
     IdleState mIdleState;
     int mPin;
+    String mToolId;
 };
+
+inline ITool::ITool(String iName, ToolType iType, bool iRequires2FA, int iTime, IdleState iIdleState, int iPint, String iToolId)
+    :mName(iName)
+    ,mToolType(iType)
+    ,mRequires2FA(iRequires2FA)
+    ,mTime(iTime)
+    ,mIdleState(iIdleState)
+    ,mPin(iPint)
+    ,mToolId(iToolId)
+{
+
+}
