@@ -1,6 +1,7 @@
 #pragma once
 
 #include "trace.h"
+#include "iTool.h"
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
 #include <M5Unified.h>
@@ -22,9 +23,13 @@ public:
     void clear();
     void pushCanvas();
     void drawTime(int iHour, int iMin); // draw time
-    void drawName(const char *iName);   // draw name
-    void drawControls();                // draws arrows beside buttons
+    void drawName(String iName);   // draw name
+    void drawControls(bool iFillUp = false, bool iFillDown = false);// draws arrows beside buttons
+    void drawBootScreen();
+    void drawConfigScreen();
     void drawWifiStatus(wl_status_t iStatus);
+    void drawToolList(std::vector<ITool*> &iToolList, int iSelected);
+    void drawQr(String iQr);
     void log(const char *iMessage, DebugLevel iLevel, size_t length);
 
 private:
@@ -48,7 +53,6 @@ inline void X5Display::begin()
 inline void X5Display::clear()
 {
     mCanvas.clear();
-    pushCanvas();
 }
 
 inline void X5Display::pushCanvas()
@@ -66,10 +70,18 @@ inline void X5Display::drawTime(int iHour, int iMin)
     mCanvas.drawString(buf, 240, 320);
 }
 
-inline void X5Display::drawName(const char *iName)
+inline void X5Display::drawName(String iName)
 {
-    int len = strlen(iName);
-    int textsize = (240 / 6) / len;
+    int len = iName.length();
+    int textsize;
+    if(len!= 0){
+        textsize = (240 / 6) / len;
+    }
+    else
+    {
+        textsize = 4;
+    }
+
     if (textsize > 4)
         textsize = 4;
     mCanvas.setTextDatum(TL_DATUM);
@@ -79,12 +91,44 @@ inline void X5Display::drawName(const char *iName)
     mCanvas.drawLine(0, 7 * textsize + 5, 240, 7 * textsize + 5, TFT_ORANGE);
 }
 
-inline void X5Display::drawControls()
+inline void X5Display::drawControls(bool iFillUp, bool iFillDown)
 {
     int x = 220;
-    mCanvas.drawTriangle(x, 45, x - 10, 60, x + 10, 60, TFT_ORANGE);
+    if(iFillUp)
+    {
+        mCanvas.fillTriangle(x, 45, x - 10, 60, x + 10, 60, TFT_ORANGE);
+    }
+    else
+    {
+        mCanvas.drawTriangle(x, 45, x - 10, 60, x + 10, 60, TFT_ORANGE);
+    }
     mCanvas.drawCircle(220, 160, 5, TFT_ORANGE);
-    mCanvas.drawTriangle(x, 320 - 45, x - 10, 320 - 60, x + 10, 320 - 60, TFT_ORANGE);
+
+    if(iFillDown)
+    {
+        mCanvas.fillTriangle(x, 320 - 45, x - 10, 320 - 60, x + 10, 320 - 60, TFT_ORANGE);
+    }
+    else
+    {
+        mCanvas.drawTriangle(x, 320 - 45, x - 10, 320 - 60, x + 10, 320 - 60, TFT_ORANGE);
+    }
+}
+inline void X5Display::drawBootScreen()
+{
+    mCanvas.setTextDatum(TL_DATUM);
+    mCanvas.setTextColor(TFT_WHITE);
+    mCanvas.setTextSize(2);
+    mCanvas.drawString("Booted!", 0, 20);
+    mCanvas.drawString("Connecting to WiFi", 0, 40);
+}
+
+inline void X5Display::drawConfigScreen()
+{
+    mCanvas.setTextDatum(TL_DATUM);
+    mCanvas.setTextColor(TFT_WHITE);
+    mCanvas.setTextSize(2);
+    mCanvas.drawString("Configuring...", 0, 20);
+    mCanvas.drawString("Establishing backend connection...", 0, 40);
 }
 
 inline void X5Display::drawWifiStatus(wl_status_t iStatus)
@@ -129,6 +173,48 @@ inline void X5Display::drawWifiStatus(wl_status_t iStatus)
         mCanvas.drawString("WiFi UNKN", x, y);
         break;
     }
+}
+
+inline void X5Display::drawToolList(std::vector<ITool*> &iList, int iSelected)
+{
+    
+    int listSize = iList.size();
+    int maxSize = 5;
+    int size = std::min<int>(listSize, maxSize);
+    String toolNames[size];
+    
+    mCanvas.setTextSize(3);
+    mCanvas.setTextColor(TFT_WHITE);
+    mCanvas.setTextDatum(ML_DATUM);
+
+    int start = 0;
+    if (iSelected > (maxSize-1))
+    {
+        start = iSelected-(maxSize-1);
+    }
+
+    for (int i = start, j = 0; i < size+start; i++,j++)
+    {
+        if(i==iSelected)
+        {
+            mCanvas.setTextColor(TFT_ORANGE);
+        }
+        ITool* tool = iList.at(i);
+        String name = String(tool->mName);
+
+        mCanvas.drawString(name,0,60+50*(j));
+        mCanvas.setTextColor(TFT_WHITE);
+    }
+
+
+}
+
+inline void X5Display::drawQr(String iQr)
+{
+    mCanvas.qrcode(iQr.c_str());
+    mCanvas.setTextColor(TFT_WHITE);
+    mCanvas.setTextDatum(ML_DATUM);
+    mCanvas.drawString("Push Select for Reboot", 0,300);
 }
 
 inline void X5Display::log(const char *iMessage, DebugLevel iLevel, size_t length)
