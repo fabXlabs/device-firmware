@@ -32,29 +32,23 @@ Backend sBackend(backend_host, backend_port, backend_url);
 
 static FabXDevice sFabXDevice;
 
-
 void setup()
 {
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
-    M5.begin();
+    
+    m5::M5Unified::config_t config = M5.config();
+    config.output_power= false;
+    M5.begin(config);
+    
 #endif
     sDisplay.begin();
     Trace::add_logger(sSerial);
-    // Trace::add_logger(sDisplay);
-
-
 
     sFabXDevice.addBackend(sBackend);
     sFabXDevice.addDisplay(sDisplay);
     sFabXDevice.addNTP(sNTP);
     sFabXDevice.addWifi(sWifi);
-
-
-
-    sDisplay.drawControls();
-    sDisplay.drawName("Test");
-    sDisplay.pushCanvas();
     X_INFO("Trace started!");
 }
 
