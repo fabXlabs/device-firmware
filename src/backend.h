@@ -7,6 +7,11 @@
 #include "trace.h"
 #include "states.h"
 #include "config.h"
+#include "cardreader.h"
+#include <HTTPUpdate.h>
+#include "FS.h"
+#include "SPIFFS.h"
+
 using namespace websockets;
 
 const char echo_org_ssl_ca_cert[] PROGMEM = \
@@ -43,23 +48,38 @@ const char echo_org_ssl_ca_cert[] PROGMEM = \
 
 class Backend
 {
+
+
+
 public:
-    Backend(const char* iHost, const int iPort, const char* iUrl);
+    struct AuthorizedTools
+    {
+        String ToolIds[8];
+        size_t length;
+    };
+
+    Backend(const char* iHost, const int iPort, const char* iUrl, const char* iFirmwareVersion);
     void begin();
-    void loop(wl_status_t iWifiStatus, States iCurrentState);
+    void loop(wl_status_t iWifiStatus, States iCurrentState, WebsocketStates& oWebsocketState);
     BackendStates getState();
     void sendGetConfig();
+    void sendGetAuthorizedTools(CardReader::Uid& iUid, CardReader::CardSecret& secret);
+    void sendToolUnlockedNotification(String iToolId, CardReader::Uid& iUid, CardReader::CardSecret& iSecret);
+    void getAuthorizedToolsList(AuthorizedTools& iAuthorizedTools);
+    void sendPinChangedNotification(uint8_t iPinState);
+    void getUnlockToolData(unlockStruct& oUnlockStruct);
     CloseReason getCloseReason();
-    void printTools();
+    void sendToolUnlockResponse(long commandId);
     void setupSecret(bool iForceNew=false);
 
 
 private:
 
-    void sendToolUnlockResponse(long commandId);
     void sendDeviceRestartResponse(long commandId);
     void sendErrorResponse(long commandId, String message);
+    void sendDeviceUpdateResponse(long commandId);
     void handleText(const char * iPayload);
+    void downloadBg();
 
 
     static void websocketEventCallback(WebsocketsEvent event, String data);
@@ -68,6 +88,8 @@ private:
     void handleUnlockToolCommand(DynamicJsonDocument & doc);
     void handleRestartDeviceCommand(long iId);
     void handleConfigurationResponse(DynamicJsonDocument & doc);
+    void handleAuthorizedToolsResponse(DynamicJsonDocument & doc);
+    void handleUpdateDeviceFirmware(DynamicJsonDocument & doc);
 
 
 
@@ -75,19 +97,17 @@ private:
     const char* mHost;
     const int mPort;
     const char* mUrl;
-    ITool* mLastPointer = nullptr;
+    const char* mFirmwareVersion;
     WebsocketsClient mWebSocket;
-    bool mInitialized = false;
-
-
+    WiFiClientSecure mWificlient;
+    unlockStruct mUnlockStruct;
 
     //method add authsource
     //save pointer to authsource
-
     //class authsource
     //get_auth return: json
 
-public:
+public: //TODO make those private and add getters/setters
     String mName;
     String mBackgroundURL;
     String mSecret;
@@ -96,17 +116,19 @@ public:
     bool mRestartRequest = false;
     bool mUnlockRequest = false;
     long mCurrentCommandId = 0;
-    BackendStates mState = BackendStates::INIT;
+    BackendStates mState = BackendStates::UNINIT;
+    AuthorizedTools mAuthorizedTools;
 
 };
 
 extern Backend sBackend;
 
 
-inline Backend::Backend(const char* iHost, const int iPort, const char* iUrl)
+inline Backend::Backend(const char* iHost, const int iPort, const char* iUrl, const char* iFirmwareVersion)
 : mHost(iHost)
 , mPort(iPort)
 , mUrl(iUrl)
+, mFirmwareVersion(iFirmwareVersion)
 {
     
 }
@@ -130,13 +152,13 @@ inline void Backend::begin()
         WSString base64 = crypto::base64Encode((uint8_t *)auth.c_str(), auth.length());
         String authstr = "Basic ";
         authstr += internals::fromInternalString(base64);
-        if(!mInitialized)
+        if(mState == BackendStates::UNINIT)
         {
         mWebSocket.addHeader("Authorization", authstr);
         mWebSocket.onEvent(websocketEventCallback);
         mWebSocket.onMessage(websocketMsgCallback);
         mWebSocket.setCACert(echo_org_ssl_ca_cert);
-        mInitialized = true;
+        //mWebSocket.setInsecure();
         }
 
         mWebSocket.connect(wsString);
@@ -170,22 +192,24 @@ inline void Backend::setupSecret(bool iForceNew)
 	EEPROM.end();
 }
 
-inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState)
-{
-        if (iWifiStatus == WL_CONNECTED) {
-            mWebSocket.poll();
-        }
-        if (mRestartRequest)
+inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState, WebsocketStates& oWebsocketState)
+{       
+    if (iWifiStatus == WL_CONNECTED) {
+        mWebSocket.poll();
+        if(mWebSocket.available()) oWebsocketState = WebsocketStates::AVAILABLE;
+        else oWebsocketState = WebsocketStates::UNAVAILABLE;
+    }
+    if (mRestartRequest)
+    {
+        mRestartRequest = false;
+        if(iCurrentState == States::IDLE){
+            handleRestartDeviceCommand(mCurrentCommandId);
+        } 
+        else 
         {
-            mRestartRequest = false;
-            if(iCurrentState == States::IDLE){
-                handleRestartDeviceCommand(mCurrentCommandId);
-            } 
-            else 
-            {
-                sendErrorResponse(mCurrentCommandId, "Device in use.");
-            }
-        }     
+            sendErrorResponse(mCurrentCommandId, "Device in use.");
+        }
+    }     
 }
 
 inline BackendStates Backend::getState()
@@ -198,7 +222,6 @@ inline CloseReason Backend::getCloseReason()
     return mWebSocket.getCloseReason();
 }
 
-
 inline void Backend::websocketEventCallback(WebsocketsEvent event, String data) 
 {
     CloseReason reason = sBackend.getCloseReason();
@@ -207,6 +230,7 @@ inline void Backend::websocketEventCallback(WebsocketsEvent event, String data)
         case WebsocketsEvent::ConnectionOpened:
             X_DEBUG("connected");
             sBackend.sendGetConfig();
+
             break;
         case WebsocketsEvent::ConnectionClosed:
             switch (reason) {
@@ -214,9 +238,15 @@ inline void Backend::websocketEventCallback(WebsocketsEvent event, String data)
                     X_DEBUG("Policy Violation");
                     sBackend.mState = BackendStates::PROVISIONING;
                     break;
+                case CloseReason::CloseReason_AbnormalClosure:
+                    X_DEBUG("Abnormal Closure");
+                    break;
+                default:
+                    X_DEBUG("disconnected reason: %d", reason);
+                    sBackend.mState = BackendStates::ERROR;
+                    break;
             }
-            X_DEBUG("disconnected reason: %d", reason);
-            break;       
+
         case WebsocketsEvent::GotPing:
             X_DEBUG("ping");
             break;
@@ -241,11 +271,112 @@ inline void Backend::sendGetConfig()
     mCurrentCommandId = commandId;
     String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.GetConfiguration\",\"commandId\":";
     msg += commandId;
-     msg += "}";
+    msg += ", \"actualFirmwareVersion\": \"";
+    msg += mFirmwareVersion;
+    msg += "\"}";
     if (!mWebSocket.send(msg)) {
         X_DEBUG("sending get config failed");
     }
 }
+
+inline void Backend::sendGetAuthorizedTools(CardReader::Uid& iUid, CardReader::CardSecret& iSecret)
+{    
+    X_DEBUG("sending get auth tools");
+    int commandId = (int) esp_random();
+    mCurrentCommandId = commandId;
+    String id;
+    for(byte i = 0; i<iUid.size; i++)
+    {
+        char buf[3];
+        sprintf(buf,"%02X",iUid.uidByte[i]);
+        id += String(buf);  
+    }
+    String secret;
+    for(byte i = 0; i< 32; i++)
+    {
+        char buf[3];
+        sprintf(buf,"%02X",iSecret.secret[i]);
+        secret += String(buf);
+
+        
+    }
+    X_DEBUG("ID: %s", id.c_str());
+    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.GetAuthorizedTools\",\"commandId\":";
+    msg += commandId;
+    msg += ",\"phoneNrIdentity\":null,\"cardIdentity\":{\"cardId\":\"";
+    msg += id;
+    msg += "\",\"cardSecret\":\"";
+    msg += secret;
+    msg += "\"}}";
+    if (!mWebSocket.send(msg)) {
+        X_DEBUG("sending get authorized tools failed");
+        return;
+    }
+    mState = BackendStates::WAITING;
+}
+
+inline void Backend::sendToolUnlockedNotification(String iToolId, CardReader::Uid& iUid, CardReader::CardSecret& iSecret)
+{
+    String id;
+    for(byte i = 0; i<iUid.size; i++)
+    {
+        char buf[3];
+        sprintf(buf,"%02X",iUid.uidByte[i]);
+        id += String(buf);
+    }
+    String secret;
+    for(byte i = 0; i< 32; i++)
+    {
+        char buf[3];
+        sprintf(buf,"%02X",iSecret.secret[i]);
+        secret += String(buf);
+    }
+    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.ToolUnlockedNotification\",\"toolId\":\"";
+    msg += iToolId;
+    msg += "\",\"phoneNrIdentity\":null,\"cardIdentity\":{\"cardId\":\"";
+    msg += id;
+    msg += "\",\"cardSecret\":\"";
+    msg += secret;
+    msg += "\"}}";
+    if (!mWebSocket.send(msg)) {
+        X_DEBUG("sending get authorized tools failed");
+        return;
+    }
+
+}
+
+inline void Backend::sendPinChangedNotification(uint8_t iPinState)
+{
+    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.PinStatusNotification\",\"inputPins\":{";
+    bool value;
+    uint8_t pinState = iPinState;
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        X_DEBUG("%d", pinState);
+        value = pinState & 1;
+        msg += "\"" + String(i) + "\":";
+        msg += value ? "true":"false";
+        if (i != 7)
+        msg += ",";
+        pinState = pinState >> 1;
+    }
+    msg += "}}";
+    X_DEBUG(msg.c_str());
+
+    if (!mWebSocket.send(msg)) {
+        X_DEBUG("sending get authorized tools failed");
+        return;
+    }
+
+}
+
+
+inline void Backend::getAuthorizedToolsList(AuthorizedTools& iAuthorizedTools)
+{
+    iAuthorizedTools = mAuthorizedTools;
+    mAuthorizedTools.length = 0;
+}
+
 inline void Backend::sendToolUnlockResponse(long commandId) {
     String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.ToolUnlockResponse\",\"commandId\":";
     msg += commandId;
@@ -284,6 +415,19 @@ inline void Backend::sendErrorResponse(long commandId, String message)
     }
 }
 
+inline void Backend::sendDeviceUpdateResponse(long commandId)
+{
+    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws.UpdateFirmwareResponse\",\"commandId\":";
+    msg += commandId;
+    msg += "}";
+
+    X_DEBUG("sending device update response");
+
+    if (!mWebSocket.send(msg)) {
+        X_DEBUG("sending device update response failed");
+    }
+}
+
 
 
 inline void Backend::handleText(const char * iPayload) {
@@ -299,19 +443,38 @@ inline void Backend::handleText(const char * iPayload) {
         return;
     }
     sBackend.mCurrentCommandId = doc["commandId"];
-    if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.ConfigurationResponse") == 0) {
+    if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.ConfigurationResponse") == 0)
+    {
         sBackend.handleConfigurationResponse(doc);
-    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.UnlockTool") == 0) {
+    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.UnlockTool") == 0)
+    {
         sBackend.handleUnlockToolCommand(doc);
-    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.RestartDevice") == 0) {
+    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.RestartDevice") == 0)
+    {
         sBackend.mRestartRequest = true;
+    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.AuthorizedToolsResponse") == 0)
+    {
+        sBackend.handleAuthorizedToolsResponse(doc);
+    } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws.UpdateDeviceFirmware") == 0)
+    {
+        sBackend.handleUpdateDeviceFirmware(doc);
     }
+
 }
 
 inline void Backend::handleUnlockToolCommand(DynamicJsonDocument & doc) {
     X_DEBUG("handling unlock tool command");
     long commandId = doc["commandId"];
-    sendToolUnlockResponse(commandId);
+    String toolId = doc["toolId"];
+    mUnlockStruct.commandId = commandId;
+    mUnlockStruct.toolId = toolId;
+    mState = BackendStates::UNLOCK_PENDING;
+}
+
+inline void Backend::getUnlockToolData(unlockStruct& oUnlockStruct){
+    oUnlockStruct = mUnlockStruct;
+
+    mState = BackendStates::IDLE;
 }
 
 inline void Backend::handleRestartDeviceCommand(long iId) {
@@ -320,7 +483,31 @@ inline void Backend::handleRestartDeviceCommand(long iId) {
     delay(3000);
     ESP.restart();
 }
+inline void Backend::downloadBg()
+{
+    File bgFile = SPIFFS.open("/fablab.bmp", "w");
+    if (bgFile) {
+        X_INFO("Downloading Background image...");
+        HTTPClient hc;
 
+        hc.begin(mBackgroundURL);
+        X_INFO("Background image url: %s\n", mBackgroundURL.c_str());
+
+        int httpCode = hc.GET();
+        if (httpCode == HTTP_CODE_OK) {
+            hc.writeToStream(&bgFile);
+            Serial.println();
+            bgFile.close();
+        } else {
+            X_ERROR("Did not recieve HTTP OK: %i\n", httpCode);
+        }
+        
+        bgFile.close();
+    } else {
+        X_ERROR("Could not open SPIFFS /bg.jpg");
+    }
+
+}
 
 inline void Backend::handleConfigurationResponse(DynamicJsonDocument & doc) {
     mTools.clear();
@@ -352,12 +539,43 @@ inline void Backend::handleConfigurationResponse(DynamicJsonDocument & doc) {
             X_DEBUG("Allocation error");
             return;
         }
-        mLastPointer = currentTool;
         mTools.push_back(currentTool);
         ITool* testTool = mTools.back();
         Serial.printf("Tool: Name: %s, Pin: %d ID: %s\n", testTool->mName.c_str(), testTool->mPin, testTool->mToolId.c_str());
         //TODO save this to the sd card
     }
 
-    mState = BackendStates::CONFIGURED;
+    mState = BackendStates::IDLE;
+}
+
+inline void Backend::handleAuthorizedToolsResponse(DynamicJsonDocument & doc)
+{
+    X_DEBUG("Handling Authorized Tool response");
+    JsonArray toolIds = doc["toolIds"].as<JsonArray>();
+    int index = 0;
+    for(JsonVariant toolId : toolIds)
+    {
+        X_DEBUG("Tool ID");
+        mAuthorizedTools.ToolIds[index] = String(toolId.as<const char*>());
+        X_DEBUG("ToolId : %s", toolId.as<const char*>());
+        mAuthorizedTools.length = ++index;        
+    }
+    mState = BackendStates::IDLE;
+    
+}
+
+inline void Backend::handleUpdateDeviceFirmware(DynamicJsonDocument & doc)
+{
+    X_DEBUG("Handling device update response");
+    long commandId = doc["commandId"];
+    sendDeviceUpdateResponse(commandId);
+    String str = "https://";
+    str += mHost;
+    str += "/api/v1/device/me/firmware-update";
+    X_DEBUG(str.c_str());
+    mWificlient.setCACert(echo_org_ssl_ca_cert);
+    //mWificlient.setInsecure();
+    httpUpdate.update(mWificlient, str.c_str(), mFirmwareVersion, [this](HTTPClient *client) {
+      client->setAuthorization(mMac.c_str(), mSecret.c_str());
+    });
 }
