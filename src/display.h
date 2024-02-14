@@ -2,6 +2,11 @@
 
 #include "trace.h"
 #include "iTool.h"
+#include "backend.h"
+#include <HTTPClient.h>
+#include <M5GFX.h>
+#include "FS.h"
+#include "SPIFFS.h"
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
 #include <M5Unified.h>
@@ -27,8 +32,11 @@ public:
     void drawControls(bool iFillUp = false, bool iFillDown = false);// draws arrows beside buttons
     void drawBootScreen();
     void drawConfigScreen();
+    void drawUnlockedTool(ITool* iTool);
+    void drawCooldown(int iTime);
     void drawWifiStatus(wl_status_t iStatus);
-    void drawToolList(std::vector<ITool*> &iToolList, int iSelected);
+    void drawBackground();
+    void drawToolList(std::vector<ITool*> &iToolList, Backend::AuthorizedTools iAuthorizedTools, int iSelected);
     void drawQr(String iQr);
     void log(const char *iMessage, DebugLevel iLevel, size_t length);
 
@@ -52,7 +60,7 @@ inline void X5Display::begin()
 
 inline void X5Display::clear()
 {
-    mCanvas.clear();
+    mCanvas.clear(TFT_BLACK);
 }
 
 inline void X5Display::pushCanvas()
@@ -90,6 +98,12 @@ inline void X5Display::drawName(String iName)
     mCanvas.drawString(iName, 0, 0);
     mCanvas.drawLine(0, 7 * textsize + 5, 240, 7 * textsize + 5, TFT_ORANGE);
 }
+
+inline void X5Display::drawBackground()
+{
+    mCanvas.drawBmpFile(SPIFFS,"/fablab.bmp",0,50,300,300,0,0,1,1);
+}
+
 
 inline void X5Display::drawControls(bool iFillUp, bool iFillDown)
 {
@@ -129,6 +143,34 @@ inline void X5Display::drawConfigScreen()
     mCanvas.setTextSize(2);
     mCanvas.drawString("Configuring...", 0, 20);
     mCanvas.drawString("Establishing backend connection...", 0, 40);
+}
+
+inline void X5Display::drawUnlockedTool(ITool* iTool)
+{
+    mCanvas.setTextDatum(MC_DATUM);
+    mCanvas.setTextColor(TFT_GREEN);
+    mCanvas.setTextSize(3);
+    mCanvas.drawString(iTool->mName, 120, 100);
+    if (iTool->mToolType == ToolType::KEEP)
+    {
+        mCanvas.setTextColor(TFT_WHITE);
+        mCanvas.setTextSize(2);
+        mCanvas.drawString("Keep Card in", 120, 160);
+        mCanvas.drawString("Range", 120, 190);
+
+    }
+}
+
+inline void X5Display::drawCooldown(int iTime)
+{
+    char time[5];
+    sprintf(time,"%i",iTime);
+
+    mCanvas.clearDisplay(TFT_RED);
+    mCanvas.setTextDatum(MC_DATUM);
+    mCanvas.setTextColor(TFT_BLACK);
+    mCanvas.setTextSize(7);
+    mCanvas.drawString(time, 120, 160);
 }
 
 inline void X5Display::drawWifiStatus(wl_status_t iStatus)
@@ -175,34 +217,56 @@ inline void X5Display::drawWifiStatus(wl_status_t iStatus)
     }
 }
 
-inline void X5Display::drawToolList(std::vector<ITool*> &iList, int iSelected)
+inline void X5Display::drawToolList(std::vector<ITool*> &iList, Backend::AuthorizedTools iAuthorizedTools, int iSelected)
 {
     
-    int listSize = iList.size();
+    int listSize = iAuthorizedTools.length;
     int maxSize = 5;
-    int size = std::min<int>(listSize, maxSize);
-    String toolNames[size];
-    
+    std::vector<ITool*> filteredList;
+    for(int i = 0; i < iList.size();i++)
+    {
+        ITool* tool = iList.at(i);
+        for (int j = 0; j<iAuthorizedTools.length; j++)
+        {
+            if(tool->mToolId == iAuthorizedTools.ToolIds[j])
+            {
+                filteredList.push_back(tool);
+            }
+        }
+    }
+
     mCanvas.setTextSize(3);
     mCanvas.setTextColor(TFT_WHITE);
     mCanvas.setTextDatum(ML_DATUM);
 
     int start = 0;
-    if (iSelected > (maxSize-1))
+    if (iSelected > (maxSize-1) && iAuthorizedTools.length>maxSize-1)
     {
         start = iSelected-(maxSize-1);
     }
-
-    for (int i = start, j = 0; i < size+start; i++,j++)
+    int j = 0;
+    for (int i = start; i < filteredList.size(); i++)
     {
-        if(i==iSelected)
+        if(j==iSelected-start)
         {
             mCanvas.setTextColor(TFT_ORANGE);
         }
-        ITool* tool = iList.at(i);
+        ITool* tool = filteredList.at(i);
+        //bool draw = false;
+        //for (int k = 0; k<listSize; k++)
+        //{   
+        //   if (tool->mToolId == iAuthorizedTools.ToolIds[k])
+        //    {
+        //      draw = true;
+        //        break;
+        //    }
+//
+        //}
+        //if (!draw) continue;
+        if (j>maxSize-1) break;
         String name = String(tool->mName);
-
         mCanvas.drawString(name,0,60+50*(j));
+        j++;
         mCanvas.setTextColor(TFT_WHITE);
     }
 
