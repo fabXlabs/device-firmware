@@ -29,8 +29,7 @@ inline XWiFi::XWiFi(const char *iSsid, const char *iPassphrase)
 }
 
 inline void XWiFi::begin()
-{
-
+{  
     WiFi.begin(mSsid, mPassphrase);
     esp_err_t wifi_success = esp_wifi_set_ps(WIFI_PS_NONE);
 
