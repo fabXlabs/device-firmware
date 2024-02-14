@@ -9,6 +9,11 @@
         "unordered_map": "cpp",
         "unordered_set": "cpp",
         "vector": "cpp",
-        "*.default": "cpp"
+        "*.default": "cpp",
+        "algorithm": "cpp",
+        "limits": "cpp",
+        "type_traits": "cpp",
+        "functional": "cpp",
+        "chrono": "cpp"
     }
 }
