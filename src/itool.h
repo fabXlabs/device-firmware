@@ -19,9 +19,8 @@ class ITool
 {
 public:
     ITool(String iName, ToolType iType, bool iRequires2FA, int iTime, IdleState iIdleState, int iPint, String iToolId);
-    Result unlock();
 
-public:
+public: //TODO make those private and add getters
     String mName;
     ToolType mToolType;
     bool mRequires2FA = false;
