@@ -4,21 +4,18 @@
 
 #include "FS.h"
 #include "SPIFFS.h"
+#include <Adafruit_MCP23008.h>
 #include <Arduino.h>
 #include <M5Unified.h>
-#include <Adafruit_MCP23008.h>
 
+#include "backend.h"
+#include "cardreader.h"
 #include "config.h"
+#include "display.h"
+#include "fabxdevice.h"
+#include "ntp.h"
 #include "trace.h"
 #include "xwifi.h"
-#include "display.h"
-#include "backend.h"
-#include "ntp.h"
-#include "cardreader.h"
-#include "fabxdevice.h"
-
-
-
 
 static const char *firmware_version = "1.0.3";
 static const char *ssid = WIFI_SSID;
@@ -43,67 +40,62 @@ static Adafruit_MCP23008 sGpioOutput, sGpioInput;
 
 static FabXDevice sFabXDevice;
 
-void i2cscan(){
-	Serial.println(" Scanning I2C Addresses");
-	uint8_t cnt=0;
-	for(uint8_t i=0;i<128;i++){
-		Wire.beginTransmission(i);
-		uint8_t ec = Wire.endTransmission(true);
-		if(ec == 0){
-			if(i<16)Serial.print('0');
-			Serial.print(i,HEX);
-			cnt++;
-		}
-		else Serial.print("..");
-		Serial.print(' ');
-		if ((i & 0x0f) == 0x0f)Serial.println();
-	}
-	Serial.print("Scan Completed, ");
-	Serial.print(cnt);
-	Serial.println(" I2C Devices found.");
+void i2cscan() {
+  Serial.println(" Scanning I2C Addresses");
+  uint8_t cnt = 0;
+  for (uint8_t i = 0; i < 128; i++) {
+    Wire.beginTransmission(i);
+    uint8_t ec = Wire.endTransmission(true);
+    if (ec == 0) {
+      if (i < 16)
+        Serial.print('0');
+      Serial.print(i, HEX);
+      cnt++;
+    } else
+      Serial.print("..");
+    Serial.print(' ');
+    if ((i & 0x0f) == 0x0f)
+      Serial.println();
+  }
+  Serial.print("Scan Completed, ");
+  Serial.print(cnt);
+  Serial.println(" I2C Devices found.");
 }
 
-
-void setup()
-{
+void setup() {
 
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
-    
-    m5::M5Unified::config_t config = M5.config();
-    config.output_power = false;
-    M5.begin(config);
-    
-    
+
+  m5::M5Unified::config_t config = M5.config();
+  config.output_power = false;
+  M5.begin(config);
+
 #endif
-    sDisplay.begin();
-    Trace::add_logger(sSerial);
-    sDisplay.begin();
-    Wire.begin((int)21, (int)22);
-    SPI.begin();
-    i2cscan();
-    sGpioOutput.begin(0);
-    sGpioInput.begin(1);
-    if(!SPIFFS.begin(true)){
-      X_ERROR("SPIFFS Mount Failed");
-    }
-    sFabXDevice.addBackend(sBackend);
-    sFabXDevice.addDisplay(sDisplay);
-    sFabXDevice.addNTP(sNTP);
-    sFabXDevice.addWifi(sWifi);
-    sFabXDevice.addReader(sCardReader);
-    sFabXDevice.addOutputExpander(sGpioOutput);
-    sFabXDevice.addInputExpander(sGpioInput);
+  sDisplay.begin();
+  Trace::add_logger(sSerial);
+  sDisplay.begin();
+  Wire.begin((int)21, (int)22);
+  SPI.begin();
+  i2cscan();
+  sGpioOutput.begin(0);
+  sGpioInput.begin(1);
+  if (!SPIFFS.begin(true)) {
+    X_ERROR("SPIFFS Mount Failed");
+  }
+  sFabXDevice.addBackend(sBackend);
+  sFabXDevice.addDisplay(sDisplay);
+  sFabXDevice.addNTP(sNTP);
+  sFabXDevice.addWifi(sWifi);
+  sFabXDevice.addReader(sCardReader);
+  sFabXDevice.addOutputExpander(sGpioOutput);
+  sFabXDevice.addInputExpander(sGpioInput);
 
-
-
-    X_INFO("Trace started!");
-    X_DEBUG("Firmware Version %s",firmware_version);
+  X_INFO("Trace started!");
+  X_DEBUG("Firmware Version %s", firmware_version);
 }
 
-void loop()
-{
-    sFabXDevice.loop();
-    M5.update();
-;}
-
-
+void loop() {
+  sFabXDevice.loop();
+  M5.update();
+  ;
+}
