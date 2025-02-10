@@ -31,6 +31,7 @@ public:
                     bool iFillDown = false); // draws arrows beside buttons
   void drawBootScreen();
   void drawConfigScreen();
+  void drawCardCreate(String iUsername);
   void drawUnlockedTool(ITool *iTool);
   void drawCooldown(int iTime);
   void drawWifiStatus(wl_status_t iStatus);
@@ -122,6 +123,15 @@ inline void X5Display::drawConfigScreen() {
   mCanvas.setTextSize(2);
   mCanvas.drawString("Configuring...", 0, 20);
   mCanvas.drawString("Establishing backend connection...", 0, 40);
+}
+
+inline void X5Display::drawCardCreate(String iUsername) {
+  mCanvas.setTextDatum(TL_DATUM);
+  mCanvas.setTextColor(TFT_WHITE);
+  mCanvas.setTextSize(2);
+  mCanvas.drawString("Create Card Mode...", 0, 20);
+  mCanvas.drawString("Scan empty card to provision for fabx", 0, 40);
+  mCanvas.drawString(iUsername, 0, 60);
 }
 
 inline void X5Display::drawUnlockedTool(ITool *iTool) {

@@ -71,6 +71,7 @@ public:
   void getUnlockToolData(unlockStruct &oUnlockStruct);
   CloseReason getCloseReason();
   void sendToolUnlockResponse(long commandId);
+  void sendCardCreateResponse(long iCommandId, CardReader::Uid &iUid);
   void setupSecret(bool iForceNew = false);
 
 private:
@@ -89,6 +90,7 @@ private:
   void handleConfigurationResponse(DynamicJsonDocument &doc);
   void handleAuthorizedToolsResponse(DynamicJsonDocument &doc);
   void handleUpdateDeviceFirmware(DynamicJsonDocument &doc);
+  void handleCardProvisioningRequest(DynamicJsonDocument &doc);
 
 private:
   const char *mHost;
@@ -117,6 +119,7 @@ public: // TODO make those private and add getters/setters
   BackendStates mState = BackendStates::UNINIT;
   WebsocketStates mWsState = WebsocketStates::UNAVAILABLE;
   AuthorizedTools mAuthorizedTools;
+  cardProvisioningDetails mCardProvisioningDetails;
 };
 
 extern Backend sBackend;
@@ -203,6 +206,14 @@ inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState,
       sendErrorResponse(mCurrentCommandId, "Device in use.");
     }
   }
+  if (sBackend.getState() == BackendStates::CREATE_CARD_PENDING) {
+
+    if (iCurrentState != States::IDLE & iCurrentState != States::CREATE_CARD) {
+      sendErrorResponse(mCurrentCommandId, "Device in use.");
+      mState = BackendStates::IDLE;
+    }
+  }
+  oWebsocketState = mWsState;
 }
 
 inline BackendStates Backend::getState() { return mState; }
@@ -413,6 +424,29 @@ inline void Backend::sendDeviceUpdateResponse(long commandId) {
   }
 }
 
+inline void Backend::sendCardCreateResponse(long iCommandId,
+                                            CardReader::Uid &iUid) {
+  char uid[20];
+  X_DEBUG("Size: %d", iUid.size);
+  for (int i = 0; i < iUid.size; i++) {
+    sprintf(&uid[i * 2], "%02X", iUid.uidByte[i]);
+  }
+  X_DEBUG(uid);
+
+  String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
+               "CardCreationResponse\",\"commandId\":\"";
+  msg += iCommandId;
+  msg += "\",\"cardId\":\"";
+  msg += String(uid);
+  msg += "\"}";
+  X_DEBUG("sending card create response");
+
+  if (!mWebSocket.send(msg)) {
+    X_DEBUG("sending card create response failed");
+  }
+  mState = BackendStates::IDLE;
+}
+
 inline void Backend::handleText(const char *iPayload) {
   DynamicJsonDocument doc(2048);
   DynamicJsonDocument response(1024);
@@ -435,15 +469,16 @@ inline void Backend::handleText(const char *iPayload) {
   } else if (strcmp(doc["type"],
                     "cloud.fabX.fabXaccess.device.ws.RestartDevice") == 0) {
     sBackend.mRestartRequest = true;
-  } else if (strcmp(
-                 doc["type"],
-                 "cloud.fabX.fabXaccess.device.ws.AuthorizedToolsResponse") ==
-             0) {
+  } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws."
+                                 "AuthorizedToolsResponse") == 0) {
     sBackend.handleAuthorizedToolsResponse(doc);
   } else if (strcmp(doc["type"],
                     "cloud.fabX.fabXaccess.device.ws.UpdateDeviceFirmware") ==
              0) {
     sBackend.handleUpdateDeviceFirmware(doc);
+  } else if (strcmp(doc["type"],
+                    "cloud.fabX.fabXaccess.device.ws.CreateCard") == 0) {
+    sBackend.handleCardProvisioningRequest(doc);
   }
 }
 
@@ -573,4 +608,16 @@ inline void Backend::handleUpdateDeviceFirmware(DynamicJsonDocument &doc) {
                     [this](HTTPClient *client) {
                       client->setAuthorization(mMac.c_str(), mSecret.c_str());
                     });
+}
+
+inline void Backend::handleCardProvisioningRequest(DynamicJsonDocument &doc) {
+  X_DEBUG("Handling create card response");
+  long commandId = doc["commandId"];
+  String userName = doc["userName"];
+  String cardSecret = doc["cardSecret"];
+  sBackend.mCardProvisioningDetails.cardSecret = cardSecret;
+  sBackend.mCardProvisioningDetails.userName = userName;
+  sBackend.mCardProvisioningDetails.commandId = mCurrentCommandId;
+
+  mState = BackendStates::CREATE_CARD_PENDING;
 }

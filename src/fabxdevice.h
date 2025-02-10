@@ -201,6 +201,10 @@ inline void FabXDevice::loop() {
         }
       }
     }
+    if (backendState == BackendStates::CREATE_CARD_PENDING) {
+      mCurrentState = States::CREATE_CARD;
+      break;
+    }
 
   } break;
   case States::REQUEST_AUTH_TOOLS: {
@@ -378,6 +382,50 @@ inline void FabXDevice::loop() {
     IdleState state = mCurrentTool->mIdleState;
     mOutputExpander->digitalWrite(pin, state == IdleState::IDLE_HIGH ? 1 : 0);
     delay(1000);
+    mCurrentState = States::IDLE;
+    break;
+  }
+
+  case States::CREATE_CARD: {
+    X_DEBUG("Create Card");
+    int start = millis();
+    M5.update();
+    String userName = mBackend->mCardProvisioningDetails.userName;
+    long commandId = mBackend->mCardProvisioningDetails.commandId;
+    String cardSecret = mBackend->mCardProvisioningDetails.cardSecret;
+    X_DEBUG("Get details done");
+
+    CardReader::Uid uid;
+    mDisplay->clear();
+    mWifi->loop();
+    mWifi->getStatus(mCurrentWifiState);
+    mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+    mDisplay->drawWifiStatus(mCurrentWifiState);
+    X_DEBUG("Get name");
+
+    mDisplay->drawCardCreate(userName);
+    X_DEBUG("Get name done");
+    mDisplay->pushCanvas();
+    X_DEBUG("Get secret");
+
+    CardReader::CardSecret secret;
+    hex2byte(cardSecret, secret);
+    X_DEBUG("Get secret done");
+
+    Result result = Result::ERROR;
+    X_DEBUG("read");
+
+    while (result != Result::OK && millis() < (start + 12000)) {
+      result = mCardReader->createCard(uid, secret);
+      // result = mCardReader->clearCard();
+      M5.update();
+      delay(10);
+    }
+    if (result == Result::OK) {
+      X_DEBUG("command id %ld", commandId);
+      mBackend->sendCardCreateResponse(commandId, uid);
+    }
+    mBackend->mState = BackendStates::IDLE;
     mCurrentState = States::IDLE;
     break;
   }
