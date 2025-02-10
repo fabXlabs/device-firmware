@@ -79,6 +79,7 @@ private:
   void sendDeviceUpdateResponse(long commandId);
   void handleText(const char *iPayload);
   void downloadBg();
+  void reconnect();
 
   static void websocketEventCallback(WebsocketsEvent event, String data);
   static void websocketMsgCallback(WebsocketsMessage message);
@@ -97,6 +98,7 @@ private:
   WebsocketsClient mWebSocket;
   WiFiClientSecure mWificlient;
   unlockStruct mUnlockStruct;
+  uint32_t mReconnectTime = 0;
 
   // method add authsource
   // save pointer to authsource
@@ -113,6 +115,7 @@ public: // TODO make those private and add getters/setters
   bool mUnlockRequest = false;
   long mCurrentCommandId = 0;
   BackendStates mState = BackendStates::UNINIT;
+  WebsocketStates mWsState = WebsocketStates::UNAVAILABLE;
   AuthorizedTools mAuthorizedTools;
 };
 
@@ -183,9 +186,14 @@ inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState,
   if (iWifiStatus == WL_CONNECTED) {
     mWebSocket.poll();
     if (mWebSocket.available())
-      oWebsocketState = WebsocketStates::AVAILABLE;
-    else
-      oWebsocketState = WebsocketStates::UNAVAILABLE;
+      mWsState = WebsocketStates::AVAILABLE;
+    else {
+      mWsState = WebsocketStates::RECONNECT;
+      if (mReconnectTime + 5000 <= millis()) {
+        reconnect();
+        mReconnectTime = millis();
+      }
+    }
   }
   if (mRestartRequest) {
     mRestartRequest = false;
@@ -205,13 +213,16 @@ inline CloseReason Backend::getCloseReason() {
 
 inline void Backend::websocketEventCallback(WebsocketsEvent event,
                                             String data) {
+  if (sBackend.mWsState == WebsocketStates::RECONNECT) {
+    return;
+  }
   CloseReason reason = sBackend.getCloseReason();
 
   switch (event) {
   case WebsocketsEvent::ConnectionOpened:
     X_DEBUG("connected");
     sBackend.sendGetConfig();
-
+    sBackend.mWsState = WebsocketStates::AVAILABLE;
     break;
   case WebsocketsEvent::ConnectionClosed:
     switch (reason) {
@@ -479,6 +490,17 @@ inline void Backend::downloadBg() {
   } else {
     X_ERROR("Could not open SPIFFS /bg.jpg");
   }
+}
+
+inline void Backend::reconnect() {
+  String wsString = "wss://";
+  wsString += mHost;
+  wsString += mUrl;
+  X_DEBUG("Connection details: %s", wsString.c_str());
+  mWebSocket.close();
+  mWebSocket.connect(wsString);
+  X_INFO("Reconnecting started");
+  mWsState = WebsocketStates::UNAVAILABLE;
 }
 
 inline void Backend::handleConfigurationResponse(DynamicJsonDocument &doc) {
