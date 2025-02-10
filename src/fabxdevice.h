@@ -178,9 +178,6 @@ inline void FabXDevice::loop() {
       mCurrentState = States::INIT;
       return;
     }
-    if (mWebsocketState != WebsocketStates::AVAILABLE) {
-      mCurrentState = States::INIT;
-    }
     Result result = mCardReader->read(mUid, mCardSecret);
     if (result == Result::OK) {
       mCurrentState = States::REQUEST_AUTH_TOOLS;
