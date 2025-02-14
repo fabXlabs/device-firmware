@@ -332,14 +332,14 @@ inline void FabXDevice::loop() {
   case States::TOOL_KEEP: {
     X_DEBUG("Keep");
 
-    CardReader::Uid uid;
-    CardReader::CardSecret secret;
-    Result result = mCardReader->read(uid, secret);
+    CardReader::Uid uid, lastUid;
+    CardReader::CardSecret secret, lastSecret;
+    Result result = mCardReader->read(lastUid, lastSecret);
     int lastChecked = millis();
     while (result == Result::OK) {
       if (millis() > lastChecked + 100) {
         lastChecked = millis();
-        result = mCardReader->read(uid, secret);
+        result = mCardReader->read(lastUid, lastSecret);
       }
       mDisplay->clear();
       mWifi->loop();
@@ -358,8 +358,15 @@ inline void FabXDevice::loop() {
         lastChecked = millis();
         result = mCardReader->read(uid, secret);
       }
-      if (result == Result::OK)
-        return; // check if card is present, if go back to checking regularly
+      if (result == Result::OK) {
+        bool equal = true;
+        for (uint8_t i = 0; i < 32; ++i) {
+          if (secret.secret[i] != lastSecret.secret[i])
+            equal = false;
+        }
+        if (equal)
+          return;
+      }
       mWifi->loop();
       mWifi->getStatus(mCurrentWifiState);
       mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);

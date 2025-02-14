@@ -17,7 +17,7 @@
 #include "trace.h"
 #include "xwifi.h"
 
-static const char *firmware_version = "1.1.4";
+static const char *firmware_version = "1.1.9";
 static const char *ssid = WIFI_SSID;
 static const char *password = WIFI_PSK;
 
