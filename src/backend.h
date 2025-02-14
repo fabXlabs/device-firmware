@@ -89,7 +89,7 @@ private:
   void handleRestartDeviceCommand(long iId);
   void handleConfigurationResponse(DynamicJsonDocument &doc);
   void handleAuthorizedToolsResponse(DynamicJsonDocument &doc);
-  void handleUpdateDeviceFirmware(DynamicJsonDocument &doc);
+  void handleUpdateDeviceFirmware(long commandId);
   void handleCardProvisioningRequest(DynamicJsonDocument &doc);
 
 private:
@@ -120,6 +120,7 @@ public: // TODO make those private and add getters/setters
   WebsocketStates mWsState = WebsocketStates::UNAVAILABLE;
   AuthorizedTools mAuthorizedTools;
   cardProvisioningDetails mCardProvisioningDetails;
+  bool mUpdatePending;
 };
 
 extern Backend sBackend;
@@ -202,6 +203,14 @@ inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState,
     mRestartRequest = false;
     if (iCurrentState == States::IDLE) {
       handleRestartDeviceCommand(mCurrentCommandId);
+    } else {
+      sendErrorResponse(mCurrentCommandId, "Device in use.");
+    }
+  }
+  if (mUpdatePending) {
+    mUpdatePending = false;
+    if (iCurrentState == States::IDLE) {
+      handleUpdateDeviceFirmware(mCurrentCommandId);
     } else {
       sendErrorResponse(mCurrentCommandId, "Device in use.");
     }
@@ -475,7 +484,8 @@ inline void Backend::handleText(const char *iPayload) {
   } else if (strcmp(doc["type"],
                     "cloud.fabX.fabXaccess.device.ws.UpdateDeviceFirmware") ==
              0) {
-    sBackend.handleUpdateDeviceFirmware(doc);
+    sBackend.mUpdatePending = true;
+    // sBackend.handleUpdateDeviceFirmware(doc);
   } else if (strcmp(doc["type"],
                     "cloud.fabX.fabXaccess.device.ws.CreateCard") == 0) {
     sBackend.handleCardProvisioningRequest(doc);
@@ -594,9 +604,9 @@ inline void Backend::handleAuthorizedToolsResponse(DynamicJsonDocument &doc) {
   mState = BackendStates::IDLE;
 }
 
-inline void Backend::handleUpdateDeviceFirmware(DynamicJsonDocument &doc) {
+inline void Backend::handleUpdateDeviceFirmware(long commandId) {
   X_DEBUG("Handling device update response");
-  long commandId = doc["commandId"];
+  // long commandId = doc["commandId"];
   sendDeviceUpdateResponse(commandId);
   String str = "https://";
   str += mHost;
