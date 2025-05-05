@@ -2,6 +2,7 @@
 #include "backend.h"
 #include "cardreader.h"
 #include "display.h"
+#include "keypad.h"
 #include "itool.h"
 #include "ntp.h"
 #include "result.h"
@@ -40,6 +41,7 @@ class FabXDevice {
 public:
   FabXDevice();
   void loop();
+  void update();
   void playRequestSound();
   Result addBackend(Backend &iBackend);
   Result addNTP(NTP &iNTP);
@@ -48,6 +50,7 @@ public:
   Result addReader(CardReader &iCardReader);
   Result addOutputExpander(Adafruit_MCP23008 &iOutputExpander);
   Result addInputExpander(Adafruit_MCP23008 &iInputExpander);
+  Result addKeypad(Keypad &iKeypad);
 
 private:
   NTP *mNTP = nullptr;
@@ -57,6 +60,7 @@ private:
   CardReader *mCardReader = nullptr;
   Adafruit_MCP23008 *mOutputExpander = nullptr;
   Adafruit_MCP23008 *mInputExpander = nullptr;
+  Keypad *mKeypad = nullptr;
   States mCurrentState = States::INIT;
   wl_status_t mCurrentWifiState;
   int mSelectedTool = 0;
@@ -66,12 +70,12 @@ private:
   WebsocketStates mWebsocketState;
   ITool *mCurrentTool = nullptr;
   uint8_t mInputState = 0;
+  bool mKeypadPresent = false;
 };
 
 inline FabXDevice::FabXDevice() {}
 
 inline void FabXDevice::loop() {
-
   switch (mCurrentState) {
 
   case States::INIT: {
@@ -106,9 +110,7 @@ inline void FabXDevice::loop() {
     int timeout = 500;
     do { // wait for configuration response, after WS connect, config gets
          // requested, response handler configures the tools
-      mWifi->loop();
-      mWifi->getStatus(mCurrentWifiState);
-      mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+      update();
       mDisplay->clear();
       mDisplay->drawConfigScreen();
       mDisplay->drawWifiStatus(mCurrentWifiState);
@@ -138,12 +140,20 @@ inline void FabXDevice::loop() {
         mOutputExpander->digitalWrite(pin,
                                       state == IdleState::IDLE_HIGH ? 1 : 0);
         mOutputExpander->pinMode(pin, 0);
+        if (tool->mRequires2FA) {
+          mKeypadPresent = true;
+        }
       }
       for (int i = 0; i < 8; i++) {
         mInputExpander->pullUp(i, HIGH);
       }
       mInputState = mInputExpander->readGPIO();
       mBackend->sendPinChangedNotification(mInputState);
+
+      if (mKeypadPresent) {
+        mKeypad->begin();
+      }
+
       mCurrentState = States::IDLE;
     }
     break;
@@ -168,9 +178,9 @@ inline void FabXDevice::loop() {
     mDisplay->clear();
     mDisplay->drawName(mBackend->mName);
     mDisplay->drawBackground();
-    mWifi->loop();
-    mWifi->getStatus(mCurrentWifiState);
-    mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+    mKeypad->setCommand(Keypad::Command::IDLE);
+    update();
+
     mDisplay->drawWifiStatus(mCurrentWifiState);
     mDisplay->pushCanvas();
     delay(10);
@@ -212,10 +222,7 @@ inline void FabXDevice::loop() {
            timeout > 0) // wait for backend to receive response from server, is
                         // list of authorized tools
     {
-      wl_status_t oStatus;
-      mWifi->loop();
-      mWifi->getStatus(oStatus);
-      mBackend->loop(oStatus, mCurrentState, mWebsocketState);
+      update();
       timeout--;
       delay(10);
     }
@@ -223,6 +230,23 @@ inline void FabXDevice::loop() {
       mCurrentState = States::IDLE;
       return;
     }
+    if (mBackend->mAuthorizedTools.pending) return;
+
+    if (!mBackend->mAuthorizedTools.authOk) {
+      mKeypad->setCommand(Keypad::Command::AUTH_FAIL_CARD);
+      int now = millis();
+      while (millis() < now + 1000) {
+        mDisplay->clear();
+        update();
+        mDisplay->drawWifiStatus(mCurrentWifiState);
+        mDisplay->drawName(mBackend->mName);
+        mDisplay->pushCanvas();
+        delay(10);
+      }
+      mKeypad->setCommand(Keypad::Command::IDLE);
+      mCurrentState = States::IDLE;
+    }
+
     mAuthorizedToolIds = {};
     mBackend->getAuthorizedToolsList(mAuthorizedToolIds);
     X_INFO(mAuthorizedToolIds.ToolIds[0].c_str());
@@ -247,11 +271,8 @@ inline void FabXDevice::loop() {
       }
 
       while (!M5.BtnB.wasPressed() && mAuthorizedToolIds.length > 1) {
-        M5.update();
         mDisplay->clear();
-        mWifi->loop();
-        mWifi->getStatus(mCurrentWifiState);
-        mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+        update();
 
         mDisplay->drawWifiStatus(mCurrentWifiState);
         mDisplay->drawControls(
@@ -285,7 +306,8 @@ inline void FabXDevice::loop() {
 
       X_DEBUG("Selected Tool %d", mSelectedTool);
       for (ITool *tool : mBackend->mTools) {
-        if (tool->mToolId == mAuthorizedToolIds.ToolIds[mSelectedTool]) {
+        if (mSelectedTool < mAuthorizedToolIds.length
+            && tool->mToolId == mAuthorizedToolIds.ToolIds[mSelectedTool]) {
           mCurrentTool = tool;
           X_DEBUG("Tool ID: %s", mCurrentTool->mToolId.c_str());
           if (tool->mRequires2FA)
@@ -296,12 +318,130 @@ inline void FabXDevice::loop() {
           break;
         }
       }
+
+      // Tool not found, e.g. backend configuration was changed
+      if (mCurrentState == States::TOOL_SELECT) {
+        X_DEBUG("Tool %s not found", mAuthorizedToolIds.ToolIds[mSelectedTool].c_str());
+        mCurrentState = States::IDLE;
+      }
     }
     break;
-  case States::REQUEST_SECOND_FACTOR:
-    X_DEBUG("Second Factor");
-    mCurrentState = States::IDLE;
+  case States::REQUEST_SECOND_FACTOR: {
+    X_DEBUG("Requesting 2FA from keypad");
+    mKeypad->setCommand(Keypad::Command::CODE_REQUIRED);
+    int stateWasEnterCodeCount = 0;
+    Keypad::State state = mKeypad->getState();
+    Keypad::State prevState = state;
+    bool internalTimeout = true;
+    unsigned long now = millis();
+    while (millis() < now + 10000)
+    {
+      state = mKeypad->getState();
+      if (prevState != state && state == Keypad::State::TYPING) {
+        X_DEBUG("User is typing");
+      }
+      prevState = state;
+      // first wait for keypad to enter ENTER_CODE state
+      // (at least 5 iterations, as sometimes there are some glitches)
+      // then wait for user to finish entering code
+      const bool stateIsEnterCode = (state == Keypad::State::ENTER_CODE
+                                    || state == Keypad::State::TYPING);
+      if (stateWasEnterCodeCount > 5 && !stateIsEnterCode) {
+        internalTimeout = false;
+        break;
+      }
+      if (stateIsEnterCode) {
+        // stop forcing the keypad to a status
+        // to allow it to enter the CODE_READY state
+        mKeypad->setCommand(Keypad::Command::NO_COMMAND);
+        stateWasEnterCodeCount++;
+      }
+
+      mDisplay->clear();
+      update();
+      mDisplay->drawWifiStatus(mCurrentWifiState);
+      mDisplay->drawName(mBackend->mName);
+      mDisplay->draw2FARequest();
+      mDisplay->pushCanvas();
+      // X_DEBUG("Keypad wait C:%d S:%d T:%d",
+      //               static_cast<int>(mKeypad->getCommand()),
+      //               static_cast<int>(mKeypad->getState()), millis()-now);
+      //X_DEBUG("Keypad wait %08lx T:%d", mKeypad->getRaw(), millis()-now);
+      delay(10);
+    }
+
+    if (internalTimeout) {
+      X_DEBUG("Getting 2FA from keypad timed out");
+    }
+    else {
+      X_DEBUG("Keypad returned to state %d", static_cast<int>(state));
+    }
+
+    switch (state) {
+      case Keypad::State::CODE_READY:
+        X_DEBUG("Got code from keypad");
+        mBackend->sendValidateSecondFactor(mKeypad->getCodeAsString(),
+                                           mUid, mCardSecret);
+        mCurrentState = States::REQUEST_SECOND_FACTOR_VALIDATION;
+        break;
+      case Keypad::State::IDLE: // timeout in keypad
+        X_DEBUG("Keypad timed out during code entry");
+        // fall through
+      default:
+        mCurrentState = States::IDLE;
+        break;
+    }
     break;
+  }
+  case States::REQUEST_SECOND_FACTOR_VALIDATION: {
+    mKeypad->setCommand(Keypad::Command::ACT_BUSY);
+    int timeout = 500;
+    while (mBackend->getState() != BackendStates::IDLE &&
+           timeout > 0) // wait for backend to receive response from server, is
+                        // list of authorized tools
+    {
+      update();
+      timeout--;
+      delay(10);
+    }
+    if (timeout == 0) {
+      mCurrentState = States::IDLE;
+      return;
+    }
+    X_DEBUG("2FA response: pending=%d valid=%d",
+              mBackend->mSecondFactorCheck.pending,
+              mBackend->mSecondFactorCheck.valid);
+    if (!mBackend->mSecondFactorCheck.pending) {
+      if (mBackend->mSecondFactorCheck.valid) {
+        X_DEBUG("2FA OK");
+        mDisplay->pushCanvas();
+        mKeypad->setCommand(Keypad::Command::AUTH_OK);
+        mCurrentState = States::TOOL_UNLOCK;
+      }
+      else {
+        X_DEBUG("2FA FAIL");
+        mKeypad->setCommand(Keypad::Command::AUTH_FAIL_CODE);
+        int now = millis();
+        while (millis() < now + 1000) {
+          mDisplay->clear();
+          update();
+          mDisplay->drawWifiStatus(mCurrentWifiState);
+          mDisplay->drawName(mBackend->mName);
+          mDisplay->draw2FAResult(false);
+          mDisplay->pushCanvas();
+          delay(10);
+        }
+        mKeypad->setCommand(Keypad::Command::IDLE);
+        mCurrentState = States::IDLE;
+      }
+    }
+    else {
+      mKeypad->setCommand(Keypad::Command::NO_COMMAND);
+      mCurrentState = States::IDLE;
+    }
+    if (mKeypadPresent) mKeypad->update();
+    break;
+  }
   case States::TOOL_UNLOCK: {
     int pin = mCurrentTool->mPin;
     X_DEBUG("UNLOCK Pin %d", pin);
@@ -316,9 +456,8 @@ inline void FabXDevice::loop() {
     int now = millis();
     while (millis() < now + mCurrentTool->mTime) {
       mDisplay->clear();
-      mWifi->loop();
-      mWifi->getStatus(mCurrentWifiState);
-      mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+      mKeypad->setCommand(Keypad::Command::TOOL_UNLOCKED);
+      update();
       mDisplay->drawWifiStatus(mCurrentWifiState);
       mDisplay->drawName(mBackend->mName);
       mDisplay->drawUnlockedTool(mCurrentTool);
@@ -342,14 +481,12 @@ inline void FabXDevice::loop() {
         result = mCardReader->read(lastUid, lastSecret);
       }
       mDisplay->clear();
-      mWifi->loop();
-      mWifi->getStatus(mCurrentWifiState);
-      mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+      mKeypad->setCommand(Keypad::Command::TOOL_UNLOCKED);
+      update();
       mDisplay->drawWifiStatus(mCurrentWifiState);
       mDisplay->drawName(mBackend->mName);
       mDisplay->drawUnlockedTool(mCurrentTool);
       mDisplay->pushCanvas();
-      M5.update();
       delay(10);
     }
     int lastValid = millis(); // if card is not present anymore
@@ -367,14 +504,11 @@ inline void FabXDevice::loop() {
         if (equal)
           return;
       }
-      mWifi->loop();
-      mWifi->getStatus(mCurrentWifiState);
-      mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+      update();
       int secsLeft =
           (mCurrentTool->mTime) / 1000 - (millis() - lastValid) / 1000;
       mDisplay->drawCooldown(secsLeft);
       mDisplay->pushCanvas();
-      M5.update();
       delay(10);
     }
     mCurrentState = States::TOOL_LOCK;
@@ -385,7 +519,17 @@ inline void FabXDevice::loop() {
     int pin = mCurrentTool->mPin;
     IdleState state = mCurrentTool->mIdleState;
     mOutputExpander->digitalWrite(pin, state == IdleState::IDLE_HIGH ? 1 : 0);
-    delay(1000);
+    int now = millis();
+    while (millis() < now + 1000) {
+      mDisplay->clear();
+      mKeypad->setCommand(Keypad::Command::TOOL_LOCKED);
+      update();
+      mDisplay->drawWifiStatus(mCurrentWifiState);
+      mDisplay->drawName(mBackend->mName);
+      mDisplay->pushCanvas();
+      delay(10);
+    }
+    mKeypad->setCommand(Keypad::Command::IDLE);
     mCurrentState = States::IDLE;
     break;
   }
@@ -393,7 +537,6 @@ inline void FabXDevice::loop() {
   case States::CREATE_CARD: {
     X_DEBUG("Create Card");
     int start = millis();
-    M5.update();
     String userName = mBackend->mCardProvisioningDetails.userName;
     long commandId = mBackend->mCardProvisioningDetails.commandId;
     String cardSecret = mBackend->mCardProvisioningDetails.cardSecret;
@@ -401,9 +544,7 @@ inline void FabXDevice::loop() {
 
     CardReader::Uid uid;
     mDisplay->clear();
-    mWifi->loop();
-    mWifi->getStatus(mCurrentWifiState);
-    mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+    update();
     mDisplay->drawWifiStatus(mCurrentWifiState);
     X_DEBUG("Get name");
 
@@ -436,6 +577,14 @@ inline void FabXDevice::loop() {
   default:
     break;
   }
+}
+
+inline void FabXDevice::update() {
+  mWifi->loop();
+  mWifi->getStatus(mCurrentWifiState);
+  mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
+  if (mKeypadPresent) mKeypad->update();
+  M5.update();
 }
 
 inline void FabXDevice::playRequestSound() {
@@ -481,5 +630,10 @@ FabXDevice::addOutputExpander(Adafruit_MCP23008 &iOutputExpander) {
 
 inline Result FabXDevice::addInputExpander(Adafruit_MCP23008 &iInputExpander) {
   mInputExpander = &iInputExpander;
+  return Result::OK;
+}
+
+inline Result FabXDevice::addKeypad(Keypad &iKeypad) {
+  mKeypad = &iKeypad;
   return Result::OK;
 }

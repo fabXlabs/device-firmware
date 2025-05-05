@@ -12,12 +12,13 @@
 #include "cardreader.h"
 #include "config.h"
 #include "display.h"
+#include "keypad.h"
 #include "fabxdevice.h"
 #include "ntp.h"
 #include "trace.h"
 #include "xwifi.h"
 
-static const char *firmware_version = "1.1.9";
+static const char *firmware_version = "1.2.0";
 static const char *ssid = WIFI_SSID;
 static const char *password = WIFI_PSK;
 
@@ -35,6 +36,7 @@ static X5Display sDisplay;
 static NTP sNTP(timezone_info, ntp_server, sWifi);
 Backend sBackend(backend_host, backend_port, backend_url, firmware_version);
 static CardReader sCardReader;
+static Keypad sKeypad;
 
 static Adafruit_MCP23008 sGpioOutput, sGpioInput;
 
@@ -76,6 +78,7 @@ void setup() {
   sDisplay.begin();
   Wire.begin((int)21, (int)22);
   SPI.begin();
+  //sKeypad.begin(); // is called in fabxdevice
   i2cscan();
   sGpioOutput.begin(0);
   sGpioInput.begin(1);
@@ -89,6 +92,7 @@ void setup() {
   sFabXDevice.addReader(sCardReader);
   sFabXDevice.addOutputExpander(sGpioOutput);
   sFabXDevice.addInputExpander(sGpioInput);
+  sFabXDevice.addKeypad(sKeypad);
 
   X_INFO("Trace started!");
   X_DEBUG("Firmware Version %s", firmware_version);

@@ -3,7 +3,7 @@
 #include "FS.h"
 #include "SPIFFS.h"
 #include "backend.h"
-#include "iTool.h"
+#include "itool.h"
 #include "trace.h"
 #include <HTTPClient.h>
 #include <M5GFX.h>
@@ -32,6 +32,8 @@ public:
   void drawBootScreen();
   void drawConfigScreen();
   void drawCardCreate(String iUsername);
+  void draw2FARequest();
+  void draw2FAResult(bool ok);
   void drawUnlockedTool(ITool *iTool);
   void drawCooldown(int iTime);
   void drawWifiStatus(wl_status_t iStatus);
@@ -132,6 +134,20 @@ inline void X5Display::drawCardCreate(String iUsername) {
   mCanvas.drawString("Create Card Mode...", 0, 20);
   mCanvas.drawString("Scan empty card to provision for fabx", 0, 40);
   mCanvas.drawString(iUsername, 0, 60);
+}
+
+inline void X5Display::draw2FARequest() {
+  mCanvas.setTextDatum(MC_DATUM);
+  mCanvas.setTextColor(TFT_YELLOW);
+  mCanvas.setTextSize(3);
+  mCanvas.drawString("Wait for 2FA", 120, 100);
+}
+
+inline void X5Display::draw2FAResult(bool ok) {
+  mCanvas.setTextDatum(MC_DATUM);
+  mCanvas.setTextColor(ok ? TFT_GREEN : TFT_RED);
+  mCanvas.setTextSize(3);
+  mCanvas.drawString(ok ? "2FA OK" : "2FA FAIL", 120, 100);
 }
 
 inline void X5Display::drawUnlockedTool(ITool *iTool) {

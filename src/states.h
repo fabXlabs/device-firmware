@@ -9,6 +9,7 @@ enum class States {
   IDLE,
   REQUEST_AUTH_TOOLS,
   REQUEST_SECOND_FACTOR,
+  REQUEST_SECOND_FACTOR_VALIDATION,
   TOOL_SELECT,
   TOOL_UNLOCK,
   TOOL_KEEP,
@@ -37,6 +38,12 @@ typedef struct {
   String userName;
   String cardSecret;
 } cardProvisioningDetails;
+
+typedef struct {
+  long commandId;
+  bool pending;
+  bool valid;
+} secondFactorValidation;
 
 enum class WebsocketStates {
   AVAILABLE,
