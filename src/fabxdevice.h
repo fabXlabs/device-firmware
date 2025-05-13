@@ -266,6 +266,18 @@ inline void FabXDevice::loop() {
       M5.BtnC.setDebounceThresh(1);
       X_INFO("mAuthorizedToolIds.length %d", mAuthorizedToolIds.length);
       if (mAuthorizedToolIds.length == 0) {
+        mKeypad->setCommand(Keypad::Command::AUTH_FAIL_CARD);
+        int now = millis();
+        while (millis() < now + 1000) {
+          mDisplay->clear();
+          update();
+          mDisplay->drawWifiStatus(mCurrentWifiState);
+          mDisplay->drawName(mBackend->mName);
+          mDisplay->drawNoToolAccess();
+          mDisplay->pushCanvas();
+          delay(10);
+        }
+        mKeypad->setCommand(Keypad::Command::IDLE);
         mCurrentState = States::IDLE;
         return;
       }

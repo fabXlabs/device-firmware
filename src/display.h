@@ -32,6 +32,7 @@ public:
   void drawBootScreen();
   void drawConfigScreen();
   void drawCardCreate(String iUsername);
+  void drawNoToolAccess();
   void draw2FARequest();
   void draw2FAResult(bool ok);
   void drawUnlockedTool(ITool *iTool);
@@ -134,6 +135,13 @@ inline void X5Display::drawCardCreate(String iUsername) {
   mCanvas.drawString("Create Card Mode...", 0, 20);
   mCanvas.drawString("Scan empty card to provision for fabx", 0, 40);
   mCanvas.drawString(iUsername, 0, 60);
+}
+
+inline void X5Display::drawNoToolAccess() {
+  mCanvas.setTextDatum(MC_DATUM);
+  mCanvas.setTextColor(TFT_RED);
+  mCanvas.setTextSize(3);
+  mCanvas.drawString("Unqualified", 120, 100);
 }
 
 inline void X5Display::draw2FARequest() {
