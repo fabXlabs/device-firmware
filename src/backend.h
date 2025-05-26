@@ -51,6 +51,9 @@ class Backend {
 
 public:
   struct AuthorizedTools {
+    long commandId;
+    bool pending;
+    bool authOk;
     String ToolIds[8];
     size_t length;
   };
@@ -64,6 +67,8 @@ public:
   void sendGetConfig();
   void sendGetAuthorizedTools(CardReader::Uid &iUid,
                               CardReader::CardSecret &secret);
+  void sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
+                              CardReader::CardSecret &secret);
   void sendToolUnlockedNotification(String iToolId, CardReader::Uid &iUid,
                                     CardReader::CardSecret &iSecret);
   void getAuthorizedToolsList(AuthorizedTools &iAuthorizedTools);
@@ -75,6 +80,7 @@ public:
   void setupSecret(bool iForceNew = false);
 
 private:
+  String getWebSocketUrl() const;
   void sendDeviceRestartResponse(long commandId);
   void sendErrorResponse(long commandId, String message);
   void sendDeviceUpdateResponse(long commandId);
@@ -91,6 +97,8 @@ private:
   void handleAuthorizedToolsResponse(DynamicJsonDocument &doc);
   void handleUpdateDeviceFirmware(long commandId);
   void handleCardProvisioningRequest(DynamicJsonDocument &doc);
+  void handleValidSecondFactorResponse(DynamicJsonDocument &doc);
+  void handleErrorResponse(DynamicJsonDocument &doc);
 
 private:
   const char *mHost;
@@ -120,6 +128,7 @@ public: // TODO make those private and add getters/setters
   WebsocketStates mWsState = WebsocketStates::UNAVAILABLE;
   AuthorizedTools mAuthorizedTools;
   cardProvisioningDetails mCardProvisioningDetails;
+  secondFactorValidation mSecondFactorCheck;
   bool mUpdatePending;
 };
 
@@ -132,9 +141,7 @@ inline Backend::Backend(const char *iHost, const int iPort, const char *iUrl,
 
 inline void Backend::begin() {
   X_DEBUG("Backend Begin");
-  String wsString = "wss://";
-  wsString += mHost;
-  wsString += mUrl;
+  String wsString = getWebSocketUrl();
   X_DEBUG("Connection details: %s", wsString.c_str());
 
   if (mSecret.length() == 0) {
@@ -295,6 +302,9 @@ inline void Backend::sendGetAuthorizedTools(CardReader::Uid &iUid,
   X_DEBUG("sending get auth tools");
   int commandId = (int)esp_random();
   mCurrentCommandId = commandId;
+  mAuthorizedTools.commandId = commandId;
+  mAuthorizedTools.pending = true;
+  mAuthorizedTools.authOk = false;
   String id;
   for (byte i = 0; i < iUid.size; i++) {
     char buf[3];
@@ -321,6 +331,43 @@ inline void Backend::sendGetAuthorizedTools(CardReader::Uid &iUid,
     return;
   }
   mState = BackendStates::WAITING;
+}
+
+inline void
+Backend::sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
+  CardReader::CardSecret &iSecret) {
+    X_DEBUG("sending get validate second factor");
+    int commandId = (int)esp_random();
+    mCurrentCommandId = commandId;
+    String id;
+    for (byte i = 0; i < iUid.size; i++) {
+      char buf[3];
+      sprintf(buf, "%02X", iUid.uidByte[i]);
+      id += String(buf);
+    }
+    String secret;
+    for (byte i = 0; i < 32; i++) {
+      char buf[3];
+      sprintf(buf, "%02X", iSecret.secret[i]);
+      secret += String(buf);
+    }
+    X_DEBUG("ID: %s", id.c_str());
+    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
+    "ValidateSecondFactor\",\"commandId\":";
+    msg += commandId;
+    msg += ",\"phoneNrIdentity\":null,\"cardIdentity\":{\"cardId\":\"";
+    msg += id;
+    msg += "\",\"cardSecret\":\"";
+    msg += secret;
+    msg += "\"},\"pinSecondIdentity\":{\"pin\":\"";
+    msg += pin;
+    msg += "\"}}";
+    if (!mWebSocket.send(msg)) {
+      X_DEBUG("sending validate second factor failed");
+    }
+    mState = BackendStates::WAITING;
+    sBackend.mSecondFactorCheck.commandId = commandId;
+    sBackend.mSecondFactorCheck.pending = true;
 }
 
 inline void
@@ -393,7 +440,25 @@ inline void Backend::sendToolUnlockResponse(long commandId) {
   }
 }
 
-inline void Backend::sendDeviceRestartResponse(long commandId) {
+inline String Backend::getWebSocketUrl() const
+{
+  String wsString;
+  if (mPort == 443) {
+    wsString = "wss://";
+  }
+  else {
+    wsString = "ws://";
+  }
+  wsString += mHost;
+  if (mPort != 443) {
+    wsString += ":" + String(mPort);
+  }
+  wsString += mUrl;
+  return wsString;
+}
+
+inline void Backend::sendDeviceRestartResponse(long commandId)
+{
   String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
                "DeviceRestartResponse\",\"commandId\":";
   msg += commandId;
@@ -489,6 +554,12 @@ inline void Backend::handleText(const char *iPayload) {
   } else if (strcmp(doc["type"],
                     "cloud.fabX.fabXaccess.device.ws.CreateCard") == 0) {
     sBackend.handleCardProvisioningRequest(doc);
+  } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws."
+                                 "ValidSecondFactorResponse") == 0) {
+    sBackend.handleValidSecondFactorResponse(doc);
+  } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws."
+                                  "ErrorResponse") == 0) {
+    sBackend.handleErrorResponse(doc);
   }
 }
 
@@ -538,9 +609,7 @@ inline void Backend::downloadBg() {
 }
 
 inline void Backend::reconnect() {
-  String wsString = "wss://";
-  wsString += mHost;
-  wsString += mUrl;
+  String wsString = getWebSocketUrl();
   X_DEBUG("Connection details: %s", wsString.c_str());
   mWebSocket.close();
   mWebSocket.connect(wsString);
@@ -594,6 +663,11 @@ inline void Backend::handleConfigurationResponse(DynamicJsonDocument &doc) {
 inline void Backend::handleAuthorizedToolsResponse(DynamicJsonDocument &doc) {
   X_DEBUG("Handling Authorized Tool response");
   JsonArray toolIds = doc["toolIds"].as<JsonArray>();
+  long commandId = doc["commandId"];
+  if (commandId == sBackend.mAuthorizedTools.commandId) {
+    mAuthorizedTools.pending = false;
+    mAuthorizedTools.authOk = true;
+  }
   int index = 0;
   for (JsonVariant toolId : toolIds) {
     X_DEBUG("Tool ID");
@@ -625,9 +699,36 @@ inline void Backend::handleCardProvisioningRequest(DynamicJsonDocument &doc) {
   long commandId = doc["commandId"];
   String userName = doc["userName"];
   String cardSecret = doc["cardSecret"];
-  sBackend.mCardProvisioningDetails.cardSecret = cardSecret;
-  sBackend.mCardProvisioningDetails.userName = userName;
-  sBackend.mCardProvisioningDetails.commandId = mCurrentCommandId;
+  mCardProvisioningDetails.cardSecret = cardSecret;
+  mCardProvisioningDetails.userName = userName;
+  mCardProvisioningDetails.commandId = mCurrentCommandId;
 
   mState = BackendStates::CREATE_CARD_PENDING;
+}
+
+inline void Backend::handleValidSecondFactorResponse(DynamicJsonDocument &doc) {
+  X_DEBUG("Handling valid second factor response");
+  long commandId = doc["commandId"];
+  if (commandId == mSecondFactorCheck.commandId) {
+    mSecondFactorCheck.valid = true;
+    mSecondFactorCheck.pending = false;
+  }
+
+  mState = BackendStates::IDLE;
+}
+
+inline void Backend::handleErrorResponse(DynamicJsonDocument &doc) {
+  X_DEBUG("Handling error response");
+  long commandId = doc["commandId"];
+  String message = doc["message"];
+  if (commandId == mSecondFactorCheck.commandId) {
+    mSecondFactorCheck.valid = false;
+    mSecondFactorCheck.pending = false;
+  }
+  if (commandId == mAuthorizedTools.commandId) {
+    mAuthorizedTools.pending = false;
+    mAuthorizedTools.authOk = false;
+  }
+
+  mState = BackendStates::IDLE;
 }
