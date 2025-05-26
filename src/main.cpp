@@ -12,13 +12,13 @@
 #include "cardreader.h"
 #include "config.h"
 #include "display.h"
-#include "keypad.h"
 #include "fabxdevice.h"
+#include "keypad.h"
 #include "ntp.h"
 #include "trace.h"
 #include "xwifi.h"
 
-static const char *firmware_version = "1.2.0";
+static const char *firmware_version = "1.2.3";
 static const char *ssid = WIFI_SSID;
 static const char *password = WIFI_PSK;
 
@@ -78,7 +78,7 @@ void setup() {
   sDisplay.begin();
   Wire.begin((int)21, (int)22);
   SPI.begin();
-  //sKeypad.begin(); // is called in fabxdevice
+  // sKeypad.begin(); // is called in fabxdevice
   i2cscan();
   sGpioOutput.begin(0);
   sGpioInput.begin(1);
