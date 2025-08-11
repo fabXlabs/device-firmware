@@ -2,8 +2,8 @@
 #include "backend.h"
 #include "cardreader.h"
 #include "display.h"
-#include "keypad.h"
 #include "itool.h"
+#include "keypad.h"
 #include "ntp.h"
 #include "result.h"
 #include "states.h"
@@ -230,7 +230,8 @@ inline void FabXDevice::loop() {
       mCurrentState = States::IDLE;
       return;
     }
-    if (mBackend->mAuthorizedTools.pending) return;
+    if (mBackend->mAuthorizedTools.pending)
+      return;
 
     if (!mBackend->mAuthorizedTools.authOk) {
       mKeypad->setCommand(Keypad::Command::AUTH_FAIL_CARD);
@@ -318,8 +319,8 @@ inline void FabXDevice::loop() {
 
       X_DEBUG("Selected Tool %d", mSelectedTool);
       for (ITool *tool : mBackend->mTools) {
-        if (mSelectedTool < mAuthorizedToolIds.length
-            && tool->mToolId == mAuthorizedToolIds.ToolIds[mSelectedTool]) {
+        if (mSelectedTool < mAuthorizedToolIds.length &&
+            tool->mToolId == mAuthorizedToolIds.ToolIds[mSelectedTool]) {
           mCurrentTool = tool;
           X_DEBUG("Tool ID: %s", mCurrentTool->mToolId.c_str());
           if (tool->mRequires2FA)
@@ -333,7 +334,8 @@ inline void FabXDevice::loop() {
 
       // Tool not found, e.g. backend configuration was changed
       if (mCurrentState == States::TOOL_SELECT) {
-        X_DEBUG("Tool %s not found", mAuthorizedToolIds.ToolIds[mSelectedTool].c_str());
+        X_DEBUG("Tool %s not found",
+                mAuthorizedToolIds.ToolIds[mSelectedTool].c_str());
         mCurrentState = States::IDLE;
       }
     }
@@ -346,8 +348,7 @@ inline void FabXDevice::loop() {
     Keypad::State prevState = state;
     bool internalTimeout = true;
     unsigned long now = millis();
-    while (millis() < now + 10000)
-    {
+    while (millis() < now + 10000) {
       state = mKeypad->getState();
       if (prevState != state && state == Keypad::State::TYPING) {
         X_DEBUG("User is typing");
@@ -356,8 +357,8 @@ inline void FabXDevice::loop() {
       // first wait for keypad to enter ENTER_CODE state
       // (at least 5 iterations, as sometimes there are some glitches)
       // then wait for user to finish entering code
-      const bool stateIsEnterCode = (state == Keypad::State::ENTER_CODE
-                                    || state == Keypad::State::TYPING);
+      const bool stateIsEnterCode = (state == Keypad::State::ENTER_CODE ||
+                                     state == Keypad::State::TYPING);
       if (stateWasEnterCodeCount > 5 && !stateIsEnterCode) {
         internalTimeout = false;
         break;
@@ -378,30 +379,29 @@ inline void FabXDevice::loop() {
       // X_DEBUG("Keypad wait C:%d S:%d T:%d",
       //               static_cast<int>(mKeypad->getCommand()),
       //               static_cast<int>(mKeypad->getState()), millis()-now);
-      //X_DEBUG("Keypad wait %08lx T:%d", mKeypad->getRaw(), millis()-now);
+      // X_DEBUG("Keypad wait %08lx T:%d", mKeypad->getRaw(), millis()-now);
       delay(10);
     }
 
     if (internalTimeout) {
       X_DEBUG("Getting 2FA from keypad timed out");
-    }
-    else {
+    } else {
       X_DEBUG("Keypad returned to state %d", static_cast<int>(state));
     }
 
     switch (state) {
-      case Keypad::State::CODE_READY:
-        X_DEBUG("Got code from keypad");
-        mBackend->sendValidateSecondFactor(mKeypad->getCodeAsString(),
-                                           mUid, mCardSecret);
-        mCurrentState = States::REQUEST_SECOND_FACTOR_VALIDATION;
-        break;
-      case Keypad::State::IDLE: // timeout in keypad
-        X_DEBUG("Keypad timed out during code entry");
-        // fall through
-      default:
-        mCurrentState = States::IDLE;
-        break;
+    case Keypad::State::CODE_READY:
+      X_DEBUG("Got code from keypad");
+      mBackend->sendValidateSecondFactor(mKeypad->getCodeAsString(), mUid,
+                                         mCardSecret);
+      mCurrentState = States::REQUEST_SECOND_FACTOR_VALIDATION;
+      break;
+    case Keypad::State::IDLE: // timeout in keypad
+      X_DEBUG("Keypad timed out during code entry");
+      // fall through
+    default:
+      mCurrentState = States::IDLE;
+      break;
     }
     break;
   }
@@ -421,16 +421,15 @@ inline void FabXDevice::loop() {
       return;
     }
     X_DEBUG("2FA response: pending=%d valid=%d",
-              mBackend->mSecondFactorCheck.pending,
-              mBackend->mSecondFactorCheck.valid);
+            mBackend->mSecondFactorCheck.pending,
+            mBackend->mSecondFactorCheck.valid);
     if (!mBackend->mSecondFactorCheck.pending) {
       if (mBackend->mSecondFactorCheck.valid) {
         X_DEBUG("2FA OK");
         mDisplay->pushCanvas();
         mKeypad->setCommand(Keypad::Command::AUTH_OK);
         mCurrentState = States::TOOL_UNLOCK;
-      }
-      else {
+      } else {
         X_DEBUG("2FA FAIL");
         mKeypad->setCommand(Keypad::Command::AUTH_FAIL_CODE);
         int now = millis();
@@ -446,12 +445,12 @@ inline void FabXDevice::loop() {
         mKeypad->setCommand(Keypad::Command::IDLE);
         mCurrentState = States::IDLE;
       }
-    }
-    else {
+    } else {
       mKeypad->setCommand(Keypad::Command::NO_COMMAND);
       mCurrentState = States::IDLE;
     }
-    if (mKeypadPresent) mKeypad->update();
+    if (mKeypadPresent)
+      mKeypad->update();
     break;
   }
   case States::TOOL_UNLOCK: {
@@ -490,7 +489,11 @@ inline void FabXDevice::loop() {
     while (result == Result::OK) {
       if (millis() > lastChecked + 100) {
         lastChecked = millis();
-        result = mCardReader->read(lastUid, lastSecret);
+        result = mCardReader->read(uid, secret);
+        if (result == Result::OK) {
+          lastSecret = secret;
+          lastUid = uid;
+        }
       }
       mDisplay->clear();
       mKeypad->setCommand(Keypad::Command::TOOL_UNLOCKED);
@@ -595,7 +598,8 @@ inline void FabXDevice::update() {
   mWifi->loop();
   mWifi->getStatus(mCurrentWifiState);
   mBackend->loop(mCurrentWifiState, mCurrentState, mWebsocketState);
-  if (mKeypadPresent) mKeypad->update();
+  if (mKeypadPresent)
+    mKeypad->update();
   M5.update();
 }
 
