@@ -482,18 +482,14 @@ inline void FabXDevice::loop() {
   case States::TOOL_KEEP: {
     X_DEBUG("Keep");
 
-    CardReader::Uid uid, lastUid;
-    CardReader::CardSecret secret, lastSecret;
-    Result result = mCardReader->read(lastUid, lastSecret);
+    CardReader::Uid uid;
+    CardReader::CardSecret secret;
+    Result result = mCardReader->read(uid, secret);
     int lastChecked = millis();
     while (result == Result::OK) {
       if (millis() > lastChecked + 100) {
         lastChecked = millis();
         result = mCardReader->read(uid, secret);
-        if (result == Result::OK) {
-          lastSecret = secret;
-          lastUid = uid;
-        }
       }
       mDisplay->clear();
       mKeypad->setCommand(Keypad::Command::TOOL_UNLOCKED);
@@ -513,7 +509,7 @@ inline void FabXDevice::loop() {
       if (result == Result::OK) {
         bool equal = true;
         for (uint8_t i = 0; i < 32; ++i) {
-          if (secret.secret[i] != lastSecret.secret[i])
+          if (secret.secret[i] != mCardSecret.secret[i])
             equal = false;
         }
         if (equal)
