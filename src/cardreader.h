@@ -10,12 +10,36 @@
 class CardReader {
 public:
   struct CardSecret {
-    byte secret[32];
+    CardSecret() = default;
+    CardSecret(String iHex);
+    CardSecret(const char* iHex);
+
+    void fromHexString(String iHex);
+    String toString();
+
+    bool operator<(const CardSecret& other) const;
+    bool operator==(const CardSecret& other) const;
+    bool operator!=(const CardSecret& other) const;
+
+    byte secret[32] {};
   };
+
   struct Uid {
-    byte size;
-    byte uidByte[10];
-    byte sak;
+    Uid() = default;
+    Uid(String iHex);
+    Uid(const char* iHex);
+
+    void fromHexString(String iHex);
+    String toString();
+
+    bool operator<(const Uid& other) const;
+    bool operator==(const Uid& other) const;
+    bool operator!=(const Uid& other) const;
+
+    // don't change, Uid is reinterpret_cast'ed to MFRC522::Uid
+    byte size = 0;
+    byte uidByte[10] {};
+    byte sak = 0;
   };
 
   CardReader();
@@ -310,4 +334,89 @@ inline Result CardReader::readCardSecret(CardReader::CardSecret &iSecret) {
 inline void CardReader::endCard() {
   mMFRC.PCD_StopCrypto1();
   mMFRC.PICC_HaltA();
+}
+
+
+void hex2byte(String iHex, byte* iBytes, size_t maxlen) {
+  for (int i = 0, j = 0; i < iHex.length() && j<maxlen; i += 2, j++) {
+    String byteString = iHex.substring(i, i + 2);
+    uint8_t byteValue = static_cast<uint8_t>(strtol(byteString.c_str(), 0, 16));
+    iBytes[j] = byteValue;
+  }
+}
+
+String byteToHex(byte* iBytes, size_t iLen) {
+  String hexString = "";
+  for (int i = 0; i < iLen; i++) {
+    // Add leading zero for single-digit hex values
+    if (iBytes[i] < 0x10) {
+      hexString += "0";
+    }
+    hexString += String(iBytes[i], HEX);
+  }
+
+  hexString.toUpperCase();
+  return hexString;
+}
+
+
+CardReader::CardSecret::CardSecret(String iHex) {
+  fromHexString(iHex);
+}
+
+CardReader::CardSecret::CardSecret(const char* iHex)
+: CardSecret(String(iHex))  {
+}
+
+
+void CardReader::CardSecret::fromHexString(String iHex) {
+  hex2byte(iHex, secret, sizeof(secret)/sizeof(secret[0]));
+}
+String CardReader::CardSecret::toString() {
+  return byteToHex(secret, sizeof(secret)/sizeof(secret[0]));
+}
+
+bool CardReader::CardSecret::operator<(const CardReader::CardSecret& other) const {
+    return memcmp(secret, other.secret, sizeof(secret)/sizeof(secret[0])) < 0;
+}
+
+bool CardReader::CardSecret::operator==(const CardReader::CardSecret& other) const {
+    return memcmp(secret, other.secret, sizeof(secret)/sizeof(secret[0])) == 0;
+}
+
+bool CardReader::CardSecret::operator!=(const CardReader::CardSecret& other) const {
+    return !(*this == other);
+}
+
+
+
+CardReader::Uid::Uid(String iHex) {
+  fromHexString(iHex);
+  size = (iHex.length() + 1) / 2;
+  const byte maxsize = sizeof(uidByte)/sizeof(uidByte[0]);
+  if (size > maxsize) size = maxsize;
+}
+
+CardReader::Uid::Uid(const char* iHex)
+: Uid(String(iHex)) {
+}
+
+void CardReader::Uid::fromHexString(String iHex) {
+  hex2byte(iHex, uidByte, sizeof(uidByte)/sizeof(uidByte[0]));
+}
+
+String CardReader::Uid::toString() {
+  return byteToHex(uidByte, size);
+}
+
+bool CardReader::Uid::operator<(const CardReader::Uid& other) const {
+    return size == other.size && memcmp(uidByte, other.uidByte, size) < 0;
+}
+
+bool CardReader::Uid::operator==(const CardReader::Uid& other) const {
+    return size == other.size && memcmp(uidByte, other.uidByte, size) == 0;
+}
+
+bool CardReader::Uid::operator!=(const CardReader::Uid& other) const {
+    return !(*this == other);
 }
