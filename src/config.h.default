@@ -10,3 +10,13 @@
 #define SECRET_LENGTH 16 // length of device secret for authentication to backend
 #define NTP_SERVER "de.pool.ntp.org" // ntp server for time sync
 #define TZ_INFO "WEST-1DWEST-2,M3.5.0/02:00:00,M10.5.0/03:00:00" // Western European Time
+
+// Allows hardcoding secrets instead of writing them into the cards (which requires knowledge of the correct PICC_PSK)
+// * start serial monitor (pio device monitor)
+// * add a card to the backend
+// * copy secret, which would be written into the card, from serial console and add them here together with the card's UID
+//#define CARD_DUMMY_MODE 1
+//#define CARD_DUMMY_DB {\
+    {"UID1", "SECRET1"},\
+    {"UID2", "SECRET2"},\
+  }
