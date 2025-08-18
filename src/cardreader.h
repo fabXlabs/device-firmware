@@ -4,6 +4,10 @@
 #include "trace.h"
 #include <MFRC522.h>
 
+#ifdef CARD_DUMMY_MODE
+#include <map>
+#endif
+
 #define SS_PIN 32
 #define RST_PIN 33
 
@@ -105,6 +109,16 @@ inline Result CardReader::read(CardReader::Uid &iUid,
     return Result::ERROR;
   }
 
+#ifdef CARD_DUMMY_MODE
+  std::map<CardReader::Uid, CardReader::CardSecret> map = CARD_DUMMY_DB;
+
+  auto it = map.find(iUid);
+  if (it != map.end()) {
+    iSecret = it->second;
+    return Result::OK;
+  }
+#endif
+
   if (authWithSecretKey() != Result::OK) {
     X_ERROR("Could not authenticate with secret key!");
     return Result::ERROR;
@@ -128,6 +142,11 @@ inline Result CardReader::createCard(CardReader::Uid &iUid,
     // X_ERROR("Could not select card!");
     return Result::ERROR;
   }
+
+#ifdef CARD_DUMMY_MODE
+  return Result::OK;
+#endif
+
   if (authWithDefaultKey() != Result::OK) {
     X_ERROR("Could not authenticate with secret key!");
     return Result::ERROR;
