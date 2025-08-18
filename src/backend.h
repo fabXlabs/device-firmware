@@ -670,6 +670,7 @@ inline void Backend::handleAuthorizedToolsResponse(DynamicJsonDocument &doc) {
   }
   int index = 0;
   for (JsonVariant toolId : toolIds) {
+    if (index >= (sizeof(mAuthorizedTools.ToolIds) / sizeof(mAuthorizedTools.ToolIds[0]))) break;
     X_DEBUG("Tool ID");
     mAuthorizedTools.ToolIds[index] = String(toolId.as<const char *>());
     X_DEBUG("ToolId : %s", toolId.as<const char *>());
