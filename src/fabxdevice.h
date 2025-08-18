@@ -63,7 +63,6 @@ private:
   Keypad *mKeypad = nullptr;
   States mCurrentState = States::INIT;
   wl_status_t mCurrentWifiState;
-  int mSelectedTool = 0;
   CardReader::CardSecret mCardSecret;
   CardReader::Uid mUid;
   Backend::AuthorizedTools mAuthorizedToolIds;
@@ -261,7 +260,8 @@ inline void FabXDevice::loop() {
     // wait for ValidSecondFactorResponse or ErrorResponse
     {
       int now = millis();
-      mSelectedTool = 0;
+      ToolListState toolListState;
+      int selectedTool = 0;
       M5.BtnA.setDebounceThresh(1);
       M5.BtnB.setDebounceThresh(1);
       M5.BtnC.setDebounceThresh(1);
@@ -283,44 +283,48 @@ inline void FabXDevice::loop() {
         return;
       }
 
-      while (!M5.BtnB.wasPressed() && mAuthorizedToolIds.length > 1) {
-        mDisplay->clear();
-        update();
-
-        mDisplay->drawWifiStatus(mCurrentWifiState);
-        mDisplay->drawControls(
-            ((mAuthorizedToolIds.length > 5) && (mSelectedTool > 4)),
-            ((mAuthorizedToolIds.length > 5) &&
-             (mSelectedTool < mAuthorizedToolIds.length - 1)));
-        mDisplay->drawToolList(mBackend->mTools, mAuthorizedToolIds,
-                               mSelectedTool);
-        mDisplay->pushCanvas();
-        delay(10);
-        if (M5.BtnC.wasPressed()) {
-          if (mSelectedTool == 0)
-            mSelectedTool = mAuthorizedToolIds.length - 1;
-          else
-            mSelectedTool -= 1;
-          now = millis();
-        }
-        if (M5.BtnA.wasPressed()) {
-          if (mSelectedTool == mAuthorizedToolIds.length - 1)
-            mSelectedTool = 0;
-          else
-            mSelectedTool += 1;
-          now = millis();
-        }
-        if (millis() > now + 10000) {
-          X_DEBUG("Tool Selection Timeout");
-          mCurrentState = States::IDLE;
-          return;
+      // generate filtered list only containing authorized tools
+      int listSize = mAuthorizedToolIds.length;
+      std::vector<ITool *> authorizedToolsList;
+      for (int i = 0; i < mBackend->mTools.size(); i++) {
+        ITool *tool = mBackend->mTools.at(i);
+        for (int j = 0; j < mAuthorizedToolIds.length; j++) {
+          if (tool->mToolId == mAuthorizedToolIds.ToolIds[j]) {
+            authorizedToolsList.push_back(tool);
+          }
         }
       }
 
-      X_DEBUG("Selected Tool %d", mSelectedTool);
+      if (mAuthorizedToolIds.length > 1) {
+        while (true) {
+          mDisplay->clear();
+          update();
+
+          // returns true on any interaction
+          if (mDisplay->drawToolList(authorizedToolsList, toolListState)) {
+            if (toolListState.entryClicked()) {
+              selectedTool = toolListState.getSelectedIndex();
+              break;
+            }
+            now = millis();
+          }
+
+          mDisplay->drawWifiStatus(mCurrentWifiState);
+
+          mDisplay->pushCanvas();
+          delay(10);
+          if (millis() > now + 10000) {
+            X_DEBUG("Tool Selection Timeout");
+            mCurrentState = States::IDLE;
+            return;
+          }
+        }
+      }
+
+      X_DEBUG("Selected Tool %d", selectedTool);
       for (ITool *tool : mBackend->mTools) {
-        if (mSelectedTool < mAuthorizedToolIds.length &&
-            tool->mToolId == mAuthorizedToolIds.ToolIds[mSelectedTool]) {
+        if (selectedTool < mAuthorizedToolIds.length &&
+            tool->mToolId == mAuthorizedToolIds.ToolIds[selectedTool]) {
           mCurrentTool = tool;
           X_DEBUG("Tool ID: %s", mCurrentTool->mToolId.c_str());
           if (tool->mRequires2FA)
@@ -335,7 +339,7 @@ inline void FabXDevice::loop() {
       // Tool not found, e.g. backend configuration was changed
       if (mCurrentState == States::TOOL_SELECT) {
         X_DEBUG("Tool %s not found",
-                mAuthorizedToolIds.ToolIds[mSelectedTool].c_str());
+                mAuthorizedToolIds.ToolIds[selectedTool].c_str());
         mCurrentState = States::IDLE;
       }
     }
@@ -468,11 +472,11 @@ inline void FabXDevice::loop() {
     while (millis() < now + mCurrentTool->mTime) {
       mDisplay->clear();
       mKeypad->setCommand(Keypad::Command::TOOL_UNLOCKED);
-      update();
       mDisplay->drawWifiStatus(mCurrentWifiState);
       mDisplay->drawName(mBackend->mName);
       mDisplay->drawUnlockedTool(mCurrentTool);
       mDisplay->pushCanvas();
+      update(); // update after draw to reduce interaction latency
       delay(10);
     }
     mCurrentState = States::TOOL_LOCK;
