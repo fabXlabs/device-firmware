@@ -565,7 +565,7 @@ inline void FabXDevice::loop() {
     X_DEBUG("Get secret");
 
     CardReader::CardSecret secret;
-    hex2byte(cardSecret, secret);
+    secret.fromHexString(cardSecret);
     X_DEBUG("Get secret done");
 
     Result result = Result::ERROR;

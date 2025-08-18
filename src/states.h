@@ -50,14 +50,3 @@ enum class WebsocketStates {
   UNAVAILABLE,
   RECONNECT,
 };
-
-void hex2byte(String iHex, CardReader::CardSecret &iSecret) {
-
-  for (int i = 0, j = 0; i < iHex.length(); i += 2, j++) {
-    String byteString = iHex.substring(i, i + 2);
-    X_DEBUG(byteString.c_str());
-    uint8_t byteValue = static_cast<uint8_t>(strtol(byteString.c_str(), 0, 16));
-    X_DEBUG("converted %d", byteValue);
-    iSecret.secret[j] = byteValue;
-  }
-}

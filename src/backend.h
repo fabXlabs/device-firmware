@@ -305,18 +305,8 @@ inline void Backend::sendGetAuthorizedTools(CardReader::Uid &iUid,
   mAuthorizedTools.commandId = commandId;
   mAuthorizedTools.pending = true;
   mAuthorizedTools.authOk = false;
-  String id;
-  for (byte i = 0; i < iUid.size; i++) {
-    char buf[3];
-    sprintf(buf, "%02X", iUid.uidByte[i]);
-    id += String(buf);
-  }
-  String secret;
-  for (byte i = 0; i < 32; i++) {
-    char buf[3];
-    sprintf(buf, "%02X", iSecret.secret[i]);
-    secret += String(buf);
-  }
+  String id = iUid.toString();
+  String secret = iSecret.toString();
   X_DEBUG("ID: %s", id.c_str());
   String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
                "GetAuthorizedTools\",\"commandId\":";
@@ -339,18 +329,8 @@ Backend::sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
     X_DEBUG("sending get validate second factor");
     int commandId = (int)esp_random();
     mCurrentCommandId = commandId;
-    String id;
-    for (byte i = 0; i < iUid.size; i++) {
-      char buf[3];
-      sprintf(buf, "%02X", iUid.uidByte[i]);
-      id += String(buf);
-    }
-    String secret;
-    for (byte i = 0; i < 32; i++) {
-      char buf[3];
-      sprintf(buf, "%02X", iSecret.secret[i]);
-      secret += String(buf);
-    }
+    String id = iUid.toString();
+    String secret = iSecret.toString();
     X_DEBUG("ID: %s", id.c_str());
     String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
     "ValidateSecondFactor\",\"commandId\":";
@@ -373,18 +353,8 @@ Backend::sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
 inline void
 Backend::sendToolUnlockedNotification(String iToolId, CardReader::Uid &iUid,
                                       CardReader::CardSecret &iSecret) {
-  String id;
-  for (byte i = 0; i < iUid.size; i++) {
-    char buf[3];
-    sprintf(buf, "%02X", iUid.uidByte[i]);
-    id += String(buf);
-  }
-  String secret;
-  for (byte i = 0; i < 32; i++) {
-    char buf[3];
-    sprintf(buf, "%02X", iSecret.secret[i]);
-    secret += String(buf);
-  }
+  String id = iUid.toString();
+  String secret = iSecret.toString();
   String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
                "ToolUnlockedNotification\",\"toolId\":\"";
   msg += iToolId;
@@ -500,18 +470,14 @@ inline void Backend::sendDeviceUpdateResponse(long commandId) {
 
 inline void Backend::sendCardCreateResponse(long iCommandId,
                                             CardReader::Uid &iUid) {
-  char uid[20];
-  X_DEBUG("Size: %d", iUid.size);
-  for (int i = 0; i < iUid.size; i++) {
-    sprintf(&uid[i * 2], "%02X", iUid.uidByte[i]);
-  }
-  X_DEBUG(uid);
+  String id = iUid.toString();
+  X_DEBUG("ID: %s", id.c_str());
 
   String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
                "CardCreationResponse\",\"commandId\":\"";
   msg += iCommandId;
   msg += "\",\"cardId\":\"";
-  msg += String(uid);
+  msg += id;
   msg += "\"}";
   X_DEBUG("sending card create response");
 
