@@ -348,12 +348,23 @@ inline void FabXDevice::loop() {
     Keypad::State prevState = state;
     bool internalTimeout = true;
     unsigned long now = millis();
-    while (millis() < now + 10000) {
+    unsigned int lastTypingTimestamp = now;
+    // max timeout of 60s
+    while (millis() < now + 60000) {
       state = mKeypad->getState();
       if (prevState != state && state == Keypad::State::TYPING) {
         X_DEBUG("User is typing");
       }
       prevState = state;
+
+      // timeout 10s after last input
+      if (state == Keypad::State::TYPING) {
+        lastTypingTimestamp = millis();
+      }
+      if (millis() - lastTypingTimestamp > 10000) {
+        break;
+      }
+
       // first wait for keypad to enter ENTER_CODE state
       // (at least 5 iterations, as sometimes there are some glitches)
       // then wait for user to finish entering code
