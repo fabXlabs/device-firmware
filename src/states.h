@@ -29,6 +29,11 @@ enum class BackendStates {
 };
 
 typedef struct {
+  BackendStates state;
+  bool backupInUse;
+} BackendStateStruct;
+
+typedef struct {
   long commandId;
   String toolId;
 } unlockStruct;

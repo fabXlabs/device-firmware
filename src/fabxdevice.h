@@ -70,6 +70,9 @@ private:
   ITool *mCurrentTool = nullptr;
   uint8_t mInputState = 0;
   bool mKeypadPresent = false;
+  uint8_t mRetries = 0;
+  bool mBackupInUse = false;
+  uint32_t mConnectionTime = 0;
 };
 
 inline FabXDevice::FabXDevice() {}
@@ -79,6 +82,7 @@ inline void FabXDevice::loop() {
 
   case States::INIT: {
     X_DEBUG("INIT");
+    mRetries = 0;
     mDisplay->begin();
     mCardReader->begin();
     mWifi->begin();
@@ -117,8 +121,8 @@ inline void FabXDevice::loop() {
       delay(10);
       timeout -= 1;
 
-    } while (mBackend->getState() == BackendStates::INIT && timeout > 0);
-    if (mBackend->getState() == BackendStates::PROVISIONING) {
+    } while (mBackend->getState().state == BackendStates::INIT && timeout > 0);
+    if (mBackend->getState().state == BackendStates::PROVISIONING) {
       mBackend->setupSecret(true);
       String qrCode = mBackend->mMac;
       qrCode += "\n";
@@ -132,7 +136,7 @@ inline void FabXDevice::loop() {
       }
       ESP.restart();
     }
-    if (mBackend->getState() == BackendStates::IDLE) {
+    if (mBackend->getState().state == BackendStates::IDLE) {
       for (ITool *tool : mBackend->mTools) {
         int pin = tool->mPin;
         IdleState state = tool->mIdleState;
@@ -154,7 +158,10 @@ inline void FabXDevice::loop() {
       }
 
       mCurrentState = States::IDLE;
+      mConnectionTime = millis();
     }
+    if (timeout = 0)
+      mRetries += 1;
     break;
   }
   case States::IDLE: {
@@ -176,7 +183,7 @@ inline void FabXDevice::loop() {
 
     mDisplay->clear();
     mDisplay->drawName(mBackend->mName);
-    mDisplay->drawBackground();
+    mDisplay->drawBackground(mBackend->getState().backupInUse);
     mKeypad->setCommand(Keypad::Command::IDLE);
     update();
 
@@ -191,7 +198,7 @@ inline void FabXDevice::loop() {
     if (result == Result::OK) {
       mCurrentState = States::REQUEST_AUTH_TOOLS;
     }
-    BackendStates backendState = mBackend->getState();
+    BackendStates backendState = mBackend->getState().state;
     if (backendState == BackendStates::ERROR)
       ESP.restart();
     if (backendState == BackendStates::UNLOCK_PENDING) {
@@ -211,13 +218,18 @@ inline void FabXDevice::loop() {
       mCurrentState = States::CREATE_CARD;
       break;
     }
-
+    if (mBackend->getState().backupInUse) {
+      if ((mConnectionTime + 10 * 60 * 1000) < millis()) {
+        X_DEBUG("Retry normal Backend");
+        ESP.restart();
+      }
+    }
   } break;
   case States::REQUEST_AUTH_TOOLS: {
     playRequestSound();
     mBackend->sendGetAuthorizedTools(mUid, mCardSecret);
     int timeout = 500;
-    while (mBackend->getState() != BackendStates::IDLE &&
+    while (mBackend->getState().state != BackendStates::IDLE &&
            timeout > 0) // wait for backend to receive response from server, is
                         // list of authorized tools
     {
@@ -423,7 +435,7 @@ inline void FabXDevice::loop() {
   case States::REQUEST_SECOND_FACTOR_VALIDATION: {
     mKeypad->setCommand(Keypad::Command::ACT_BUSY);
     int timeout = 500;
-    while (mBackend->getState() != BackendStates::IDLE &&
+    while (mBackend->getState().state != BackendStates::IDLE &&
            timeout > 0) // wait for backend to receive response from server, is
                         // list of authorized tools
     {

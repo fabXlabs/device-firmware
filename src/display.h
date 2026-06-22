@@ -21,15 +21,16 @@ public:
 #if defined(ARDUINO_M5Stack_Core_ESP32) || defined(ARDUINO_M5STACK_Core2)
 
 class ToolListState {
-  public:
-    bool entryClicked() const { return mSelectedIndex >= 0; }
-    int getSelectedIndex() const { return mSelectedIndex; }
-    void setSelectedIndex(int iIndex) { mSelectedIndex = iIndex; }
+public:
+  bool entryClicked() const { return mSelectedIndex >= 0; }
+  int getSelectedIndex() const { return mSelectedIndex; }
+  void setSelectedIndex(int iIndex) { mSelectedIndex = iIndex; }
 
-    int mScrollPositionBeforeDrag = 0;
-    int mScrollPosition = 1000; // always start at top (will be clamped on first render)
-  private:
-    int mSelectedIndex = -1;
+  int mScrollPositionBeforeDrag = 0;
+  int mScrollPosition =
+      1000; // always start at top (will be clamped on first render)
+private:
+  int mSelectedIndex = -1;
 };
 
 class X5Display : public IDisplay, public ILogger {
@@ -50,7 +51,7 @@ public:
   void drawUnlockedTool(ITool *iTool);
   void drawCooldown(int iTime);
   void drawWifiStatus(wl_status_t iStatus);
-  void drawBackground();
+  void drawBackground(bool backupInUse);
   bool drawToolList(std::vector<ITool *> &iToolList, ToolListState &iState);
   void drawQr(String iQr);
   void log(const char *iMessage, DebugLevel iLevel, size_t length);
@@ -96,11 +97,14 @@ inline void X5Display::begin() {
     uint16_t h = static_cast<uint16_t>(mLcd.height());
     uint16_t w = static_cast<uint16_t>(mLcd.width());
     uint16_t offset = w - h;
-    uint16_t parameters[8] =
-      { offset, 0
-      , offset, w
-      , static_cast<uint16_t>(offset+h), 0
-      , static_cast<uint16_t>(offset+h), w };
+    uint16_t parameters[8] = {offset,
+                              0,
+                              offset,
+                              w,
+                              static_cast<uint16_t>(offset + h),
+                              0,
+                              static_cast<uint16_t>(offset + h),
+                              w};
     M5.Display.setTouchCalibrate(parameters);
 
     mInit = true;
@@ -129,7 +133,12 @@ inline void X5Display::drawName(String iName) {
   mCanvas.drawLine(0, 7 * textsize + 5, 240, 7 * textsize + 5, TFT_ORANGE);
 }
 
-inline void X5Display::drawBackground() {
+inline void X5Display::drawBackground(bool backupInUse) {
+  if (backupInUse) {
+    mCanvas.setTextSize(3);
+    mCanvas.setTextColor(TFT_RED);
+    mCanvas.drawString("BACKUP in use", 0, 50);
+  }
   mCanvas.drawBmpFile(SPIFFS, "/fablab.bmp", 0, 50, 300, 300, 0, 0, 1, 1);
 }
 
@@ -269,15 +278,17 @@ inline bool X5Display::drawToolList(std::vector<ITool *> &iToolList,
   mCanvas.setTextColor(TFT_WHITE);
   mCanvas.setTextDatum(ML_DATUM);
 
-  const int rowHeight = 70; //mCanvas.fontHeight() * 2;
+  const int rowHeight = 70; // mCanvas.fontHeight() * 2;
   const int buttonHorzPadding = 2;
-  const int yOffset = rowHeight/2; // drawString draws text vertically centered
+  const int yOffset =
+      rowHeight / 2; // drawString draws text vertically centered
   const int buttonWidth = 240;
   const int buttonVertMargin = 2;
   const int scrollIndicatorBarHeight = 10;
 
   const int topScrollPos = scrollIndicatorBarHeight;
-  const int botScrollPos = -rowHeight * iToolList.size() + mLcd.width() - 2*scrollIndicatorBarHeight;
+  const int botScrollPos = -rowHeight * iToolList.size() + mLcd.width() -
+                           2 * scrollIndicatorBarHeight;
 
   m5::touch_detail_t touchEvent = M5.Touch.getDetail();
   const int touchedIndex = (touchEvent.y - iState.mScrollPosition) / rowHeight;
@@ -295,12 +306,15 @@ inline bool X5Display::drawToolList(std::vector<ITool *> &iToolList,
 
   if (touchEvent.isFlicking()) {
     anyInteraction = true;
-    iState.mScrollPosition = iState.mScrollPositionBeforeDrag + touchEvent.distanceY();
+    iState.mScrollPosition =
+        iState.mScrollPositionBeforeDrag + touchEvent.distanceY();
   }
 
   // clamp scroll position
-  if (iState.mScrollPosition > topScrollPos) iState.mScrollPosition = topScrollPos;
-  if (iState.mScrollPosition < botScrollPos) iState.mScrollPosition = botScrollPos;
+  if (iState.mScrollPosition > topScrollPos)
+    iState.mScrollPosition = topScrollPos;
+  if (iState.mScrollPosition < botScrollPos)
+    iState.mScrollPosition = botScrollPos;
 
   if (touchEvent.wasFlicked()) {
     iState.mScrollPositionBeforeDrag = iState.mScrollPosition;
@@ -311,38 +325,42 @@ inline bool X5Display::drawToolList(std::vector<ITool *> &iToolList,
     ITool *tool = iToolList.at(i);
     String name = String(tool->mName);
 
-    int textsize = X5Display::autosizeText(name,
-                      buttonWidth - 2*buttonHorzPadding, 3);
+    int textsize =
+        X5Display::autosizeText(name, buttonWidth - 2 * buttonHorzPadding, 3);
     mCanvas.setTextSize(textsize);
 
-    const int yPos = yOffset + rowHeight * i +  iState.mScrollPosition;
-    if (!touchEvent.isFlicking() && !touchEvent.isDragging() && touchEvent.isPressed() && validIndex && touchedIndex == i) {
+    const int yPos = yOffset + rowHeight * i + iState.mScrollPosition;
+    if (!touchEvent.isFlicking() && !touchEvent.isDragging() &&
+        touchEvent.isPressed() && validIndex && touchedIndex == i) {
       anyInteraction = true;
       mCanvas.setTextColor(TFT_BLACK);
-      mCanvas.fillRoundRect(0, yPos - yOffset + buttonVertMargin, buttonWidth, rowHeight - buttonVertMargin*2, 10, TFT_LIGHTGRAY);
-    }
-    else {
+      mCanvas.fillRoundRect(0, yPos - yOffset + buttonVertMargin, buttonWidth,
+                            rowHeight - buttonVertMargin * 2, 10,
+                            TFT_LIGHTGRAY);
+    } else {
       mCanvas.setTextColor(TFT_WHITE);
-      mCanvas.drawRoundRect(0, yPos - yOffset + buttonVertMargin, buttonWidth, rowHeight - buttonVertMargin*2, 10, TFT_ORANGE);
+      mCanvas.drawRoundRect(0, yPos - yOffset + buttonVertMargin, buttonWidth,
+                            rowHeight - buttonVertMargin * 2, 10, TFT_ORANGE);
     }
-    //mCanvas.drawString(name, buttonHorzPadding, yPos);
+    // mCanvas.drawString(name, buttonHorzPadding, yPos);
     mCanvas.setTextDatum(textdatum_t::middle_center);
-    mCanvas.drawString(name, mCanvas.width()/2, yPos);
+    mCanvas.drawString(name, mCanvas.width() / 2, yPos);
     mCanvas.setTextColor(TFT_WHITE);
 
     // top scroll indicator bar
-    mCanvas.fillRect(0,  0, mLcd.height(), scrollIndicatorBarHeight, BLACK);
+    mCanvas.fillRect(0, 0, mLcd.height(), scrollIndicatorBarHeight, BLACK);
     if (iState.mScrollPosition < topScrollPos) {
-      const int x = mLcd.height()/2;
-      const int y = scrollIndicatorBarHeight/2;
+      const int x = mLcd.height() / 2;
+      const int y = scrollIndicatorBarHeight / 2;
       mCanvas.fillTriangle(x, y - 5, x - 7, y + 5, x + 7, y + 5, ORANGE);
     }
 
     // bottom scroll indicator bar
-    mCanvas.fillRect(0,  mLcd.width()-scrollIndicatorBarHeight, mLcd.height(), scrollIndicatorBarHeight, BLACK);
+    mCanvas.fillRect(0, mLcd.width() - scrollIndicatorBarHeight, mLcd.height(),
+                     scrollIndicatorBarHeight, BLACK);
     if (iState.mScrollPosition > botScrollPos) {
-      const int x = mLcd.height()/2;
-      const int y = mLcd.width() - scrollIndicatorBarHeight/2;
+      const int x = mLcd.height() / 2;
+      const int y = mLcd.width() - scrollIndicatorBarHeight / 2;
       mCanvas.fillTriangle(x, y + 5, x - 7, y - 5, x + 7, y - 5, ORANGE);
     }
   }
