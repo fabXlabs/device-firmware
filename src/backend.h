@@ -91,14 +91,14 @@ private:
   static void websocketEventCallback(WebsocketsEvent event, String data);
   static void websocketMsgCallback(WebsocketsMessage message);
 
-  void handleUnlockToolCommand(DynamicJsonDocument &doc);
+  void handleUnlockToolCommand(JsonDocument &doc);
   void handleRestartDeviceCommand(long iId);
-  void handleConfigurationResponse(DynamicJsonDocument &doc);
-  void handleAuthorizedToolsResponse(DynamicJsonDocument &doc);
+  void handleConfigurationResponse(JsonDocument &doc);
+  void handleAuthorizedToolsResponse(JsonDocument &doc);
   void handleUpdateDeviceFirmware(long commandId);
-  void handleCardProvisioningRequest(DynamicJsonDocument &doc);
-  void handleValidSecondFactorResponse(DynamicJsonDocument &doc);
-  void handleErrorResponse(DynamicJsonDocument &doc);
+  void handleCardProvisioningRequest(JsonDocument &doc);
+  void handleValidSecondFactorResponse(JsonDocument &doc);
+  void handleErrorResponse(JsonDocument &doc);
 
 private:
   const char *mHost;
@@ -502,8 +502,8 @@ inline void Backend::sendCardCreateResponse(long iCommandId,
 }
 
 inline void Backend::handleText(const char *iPayload) {
-  DynamicJsonDocument doc(2048);
-  DynamicJsonDocument response(1024);
+  JsonDocument doc;
+  JsonDocument response;
   X_DEBUG("text %s ", (char *)iPayload);
 
   DeserializationError deserialization_error;
@@ -543,7 +543,7 @@ inline void Backend::handleText(const char *iPayload) {
   }
 }
 
-inline void Backend::handleUnlockToolCommand(DynamicJsonDocument &doc) {
+inline void Backend::handleUnlockToolCommand(JsonDocument &doc) {
   X_DEBUG("handling unlock tool command");
   long commandId = doc["commandId"];
   String toolId = doc["toolId"];
@@ -603,10 +603,10 @@ inline void Backend::reconnect(uint8_t &mRetries) {
   mWsState = WebsocketStates::UNAVAILABLE;
 }
 
-inline void Backend::handleConfigurationResponse(DynamicJsonDocument &doc) {
+inline void Backend::handleConfigurationResponse(JsonDocument &doc) {
   mTools.clear();
   X_DEBUG("handling configuration response");
-  if (doc["commandId"] != mCurrentCommandId)
+  if (mCurrentCommandId != doc["commandId"])
     return;
   sBackend.mName = String((const char *)doc["name"]);
   sBackend.mBackgroundURL = String((const char *)doc["background"]);
@@ -646,7 +646,7 @@ inline void Backend::handleConfigurationResponse(DynamicJsonDocument &doc) {
   mState = BackendStates::IDLE;
 }
 
-inline void Backend::handleAuthorizedToolsResponse(DynamicJsonDocument &doc) {
+inline void Backend::handleAuthorizedToolsResponse(JsonDocument &doc) {
   X_DEBUG("Handling Authorized Tool response");
   JsonArray toolIds = doc["toolIds"].as<JsonArray>();
   long commandId = doc["commandId"];
@@ -683,7 +683,7 @@ inline void Backend::handleUpdateDeviceFirmware(long commandId) {
                     });
 }
 
-inline void Backend::handleCardProvisioningRequest(DynamicJsonDocument &doc) {
+inline void Backend::handleCardProvisioningRequest(JsonDocument &doc) {
   X_DEBUG("Handling create card response");
   long commandId = doc["commandId"];
   String userName = doc["userName"];
@@ -695,7 +695,7 @@ inline void Backend::handleCardProvisioningRequest(DynamicJsonDocument &doc) {
   mState = BackendStates::CREATE_CARD_PENDING;
 }
 
-inline void Backend::handleValidSecondFactorResponse(DynamicJsonDocument &doc) {
+inline void Backend::handleValidSecondFactorResponse(JsonDocument &doc) {
   X_DEBUG("Handling valid second factor response");
   long commandId = doc["commandId"];
   if (commandId == mSecondFactorCheck.commandId) {
@@ -706,7 +706,7 @@ inline void Backend::handleValidSecondFactorResponse(DynamicJsonDocument &doc) {
   mState = BackendStates::IDLE;
 }
 
-inline void Backend::handleErrorResponse(DynamicJsonDocument &doc) {
+inline void Backend::handleErrorResponse(JsonDocument &doc) {
   X_DEBUG("Handling error response");
   long commandId = doc["commandId"];
   String message = doc["message"];
