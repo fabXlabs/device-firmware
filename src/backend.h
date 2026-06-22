@@ -58,17 +58,17 @@ public:
     size_t length;
   };
 
-  Backend(const char *iHost, const int iPort, const char *iUrl,
-          const char *iFirmwareVersion);
+  Backend(const char *iHost, const char *iBackupHost, const int iPort,
+          const char *iUrl, const char *iFirmwareVersion);
   void begin();
   void loop(wl_status_t iWifiStatus, States iCurrentState,
             WebsocketStates &oWebsocketState);
-  BackendStates getState();
+  BackendStateStruct getState();
   void sendGetConfig();
   void sendGetAuthorizedTools(CardReader::Uid &iUid,
                               CardReader::CardSecret &secret);
   void sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
-                              CardReader::CardSecret &secret);
+                                CardReader::CardSecret &secret);
   void sendToolUnlockedNotification(String iToolId, CardReader::Uid &iUid,
                                     CardReader::CardSecret &iSecret);
   void getAuthorizedToolsList(AuthorizedTools &iAuthorizedTools);
@@ -80,13 +80,13 @@ public:
   void setupSecret(bool iForceNew = false);
 
 private:
-  String getWebSocketUrl() const;
+  String getWebSocketUrl(bool backup) const;
   void sendDeviceRestartResponse(long commandId);
   void sendErrorResponse(long commandId, String message);
   void sendDeviceUpdateResponse(long commandId);
   void handleText(const char *iPayload);
   void downloadBg();
-  void reconnect();
+  void reconnect(uint8_t &retries);
 
   static void websocketEventCallback(WebsocketsEvent event, String data);
   static void websocketMsgCallback(WebsocketsMessage message);
@@ -102,6 +102,7 @@ private:
 
 private:
   const char *mHost;
+  const char *mBackupHost;
   const int mPort;
   const char *mUrl;
   const char *mFirmwareVersion;
@@ -130,18 +131,22 @@ public: // TODO make those private and add getters/setters
   cardProvisioningDetails mCardProvisioningDetails;
   secondFactorValidation mSecondFactorCheck;
   bool mUpdatePending;
+  uint8_t mRetries = 0;
+  bool mBackupInUse = false;
+  uint32_t mLastPingTime = 0;
 };
 
 extern Backend sBackend;
 
-inline Backend::Backend(const char *iHost, const int iPort, const char *iUrl,
+inline Backend::Backend(const char *iHost, const char *iBackupHost,
+                        const int iPort, const char *iUrl,
                         const char *iFirmwareVersion)
-    : mHost(iHost), mPort(iPort), mUrl(iUrl),
+    : mHost(iHost), mBackupHost(iBackupHost), mPort(iPort), mUrl(iUrl),
       mFirmwareVersion(iFirmwareVersion) {}
 
 inline void Backend::begin() {
   X_DEBUG("Backend Begin");
-  String wsString = getWebSocketUrl();
+  String wsString = getWebSocketUrl(mBackupInUse);
   X_DEBUG("Connection details: %s", wsString.c_str());
 
   if (mSecret.length() == 0) {
@@ -201,7 +206,7 @@ inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState,
     else {
       mWsState = WebsocketStates::RECONNECT;
       if (mReconnectTime + 5000 <= millis()) {
-        reconnect();
+        reconnect(mRetries);
         mReconnectTime = millis();
       }
     }
@@ -222,17 +227,25 @@ inline void Backend::loop(wl_status_t iWifiStatus, States iCurrentState,
       sendErrorResponse(mCurrentCommandId, "Device in use.");
     }
   }
-  if (sBackend.getState() == BackendStates::CREATE_CARD_PENDING) {
+  if (sBackend.getState().state == BackendStates::CREATE_CARD_PENDING) {
 
     if (iCurrentState != States::IDLE & iCurrentState != States::CREATE_CARD) {
       sendErrorResponse(mCurrentCommandId, "Device in use.");
       mState = BackendStates::IDLE;
     }
   }
+  if (mLastPingTime + 25000 < millis()) {
+    reconnect(mRetries);
+  }
   oWebsocketState = mWsState;
 }
 
-inline BackendStates Backend::getState() { return mState; }
+inline BackendStateStruct Backend::getState() {
+  BackendStateStruct ret;
+  ret.state = mState;
+  ret.backupInUse = mBackupInUse;
+  return ret;
+}
 
 inline CloseReason Backend::getCloseReason() {
   return mWebSocket.getCloseReason();
@@ -267,6 +280,7 @@ inline void Backend::websocketEventCallback(WebsocketsEvent event,
     }
 
   case WebsocketsEvent::GotPing:
+    sBackend.mLastPingTime = millis();
     X_DEBUG("ping");
     break;
   case WebsocketsEvent::GotPong:
@@ -323,31 +337,30 @@ inline void Backend::sendGetAuthorizedTools(CardReader::Uid &iUid,
   mState = BackendStates::WAITING;
 }
 
-inline void
-Backend::sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
-  CardReader::CardSecret &iSecret) {
-    X_DEBUG("sending get validate second factor");
-    int commandId = (int)esp_random();
-    mCurrentCommandId = commandId;
-    String id = iUid.toString();
-    String secret = iSecret.toString();
-    X_DEBUG("ID: %s", id.c_str());
-    String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
-    "ValidateSecondFactor\",\"commandId\":";
-    msg += commandId;
-    msg += ",\"phoneNrIdentity\":null,\"cardIdentity\":{\"cardId\":\"";
-    msg += id;
-    msg += "\",\"cardSecret\":\"";
-    msg += secret;
-    msg += "\"},\"pinSecondIdentity\":{\"pin\":\"";
-    msg += pin;
-    msg += "\"}}";
-    if (!mWebSocket.send(msg)) {
-      X_DEBUG("sending validate second factor failed");
-    }
-    mState = BackendStates::WAITING;
-    sBackend.mSecondFactorCheck.commandId = commandId;
-    sBackend.mSecondFactorCheck.pending = true;
+inline void Backend::sendValidateSecondFactor(String pin, CardReader::Uid &iUid,
+                                              CardReader::CardSecret &iSecret) {
+  X_DEBUG("sending get validate second factor");
+  int commandId = (int)esp_random();
+  mCurrentCommandId = commandId;
+  String id = iUid.toString();
+  String secret = iSecret.toString();
+  X_DEBUG("ID: %s", id.c_str());
+  String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
+               "ValidateSecondFactor\",\"commandId\":";
+  msg += commandId;
+  msg += ",\"phoneNrIdentity\":null,\"cardIdentity\":{\"cardId\":\"";
+  msg += id;
+  msg += "\",\"cardSecret\":\"";
+  msg += secret;
+  msg += "\"},\"pinSecondIdentity\":{\"pin\":\"";
+  msg += pin;
+  msg += "\"}}";
+  if (!mWebSocket.send(msg)) {
+    X_DEBUG("sending validate second factor failed");
+  }
+  mState = BackendStates::WAITING;
+  sBackend.mSecondFactorCheck.commandId = commandId;
+  sBackend.mSecondFactorCheck.pending = true;
 }
 
 inline void
@@ -410,16 +423,18 @@ inline void Backend::sendToolUnlockResponse(long commandId) {
   }
 }
 
-inline String Backend::getWebSocketUrl() const
-{
+inline String Backend::getWebSocketUrl(bool backup) const {
   String wsString;
   if (mPort == 443) {
     wsString = "wss://";
-  }
-  else {
+  } else {
     wsString = "ws://";
   }
-  wsString += mHost;
+  if (backup) {
+    wsString += mBackupHost;
+  } else {
+    wsString += mHost;
+  }
   if (mPort != 443) {
     wsString += ":" + String(mPort);
   }
@@ -427,8 +442,7 @@ inline String Backend::getWebSocketUrl() const
   return wsString;
 }
 
-inline void Backend::sendDeviceRestartResponse(long commandId)
-{
+inline void Backend::sendDeviceRestartResponse(long commandId) {
   String msg = "{\"type\":\"cloud.fabX.fabXaccess.device.ws."
                "DeviceRestartResponse\",\"commandId\":";
   msg += commandId;
@@ -524,7 +538,7 @@ inline void Backend::handleText(const char *iPayload) {
                                  "ValidSecondFactorResponse") == 0) {
     sBackend.handleValidSecondFactorResponse(doc);
   } else if (strcmp(doc["type"], "cloud.fabX.fabXaccess.device.ws."
-                                  "ErrorResponse") == 0) {
+                                 "ErrorResponse") == 0) {
     sBackend.handleErrorResponse(doc);
   }
 }
@@ -574,8 +588,14 @@ inline void Backend::downloadBg() {
   }
 }
 
-inline void Backend::reconnect() {
-  String wsString = getWebSocketUrl();
+inline void Backend::reconnect(uint8_t &mRetries) {
+  mRetries += 1;
+  X_DEBUG("Retries %d", mRetries);
+  if (mRetries > 1) {
+    mBackupInUse = true;
+    mRetries = 0;
+  }
+  String wsString = getWebSocketUrl(mBackupInUse);
   X_DEBUG("Connection details: %s", wsString.c_str());
   mWebSocket.close();
   mWebSocket.connect(wsString);
@@ -636,7 +656,9 @@ inline void Backend::handleAuthorizedToolsResponse(DynamicJsonDocument &doc) {
   }
   int index = 0;
   for (JsonVariant toolId : toolIds) {
-    if (index >= (sizeof(mAuthorizedTools.ToolIds) / sizeof(mAuthorizedTools.ToolIds[0]))) break;
+    if (index >= (sizeof(mAuthorizedTools.ToolIds) /
+                  sizeof(mAuthorizedTools.ToolIds[0])))
+      break;
     X_DEBUG("Tool ID");
     mAuthorizedTools.ToolIds[index] = String(toolId.as<const char *>());
     X_DEBUG("ToolId : %s", toolId.as<const char *>());

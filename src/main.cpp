@@ -18,7 +18,7 @@
 #include "trace.h"
 #include "xwifi.h"
 
-static const char *firmware_version = "1.2.3";
+static const char *firmware_version = "1.4.0";
 static const char *ssid = WIFI_SSID;
 static const char *password = WIFI_PSK;
 
@@ -28,13 +28,15 @@ static const char *ntp_server = NTP_SERVER;
 static const char *backend_host = BACKEND_HOST;
 static const int backend_port = BACKEND_PORT;
 static const char *backend_url = BACKEND_URL;
+static const char *backup_backend_host = BACKUP_BACKEND_HOST;
 
 static SerialLogger sSerial;
 
 static XWiFi sWifi(ssid, password);
 static X5Display sDisplay;
 static NTP sNTP(timezone_info, ntp_server, sWifi);
-Backend sBackend(backend_host, backend_port, backend_url, firmware_version);
+Backend sBackend(backend_host, backup_backend_host, backend_port, backend_url,
+                 firmware_version);
 static CardReader sCardReader;
 static Keypad sKeypad;
 
